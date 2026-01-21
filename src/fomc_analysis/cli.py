@@ -36,6 +36,7 @@ from .featurizer import (
 )
 from .models import EWMAModel, BetaBinomialModel
 from .backtester_v2 import WalkForwardBacktester, save_backtest_result
+from .fetcher import fetch_transcripts as fetch_transcripts_impl
 
 
 # Load environment variables
@@ -74,23 +75,19 @@ def fetch_transcripts(start_year: int, end_year: int, out_dir: Path):
     This command scrapes the Federal Reserve website to download all
     press conference transcript PDFs for the specified year range.
     """
-    # Import the existing fetcher
-    from cli.click import main as fetch_main
-    import sys
-
-    # Override sys.argv to pass parameters
-    original_argv = sys.argv
-    sys.argv = [
-        "fetch-transcripts",
-        f"--start-year={start_year}",
-        f"--end-year={end_year}",
-        f"--out-dir={out_dir}",
-    ]
-
-    try:
-        fetch_main(standalone_mode=False)
-    finally:
-        sys.argv = original_argv
+    click.echo(f"Fetching transcripts for years {start_year}..{end_year}")
+    click.echo(f"Output directory: {out_dir}")
+    
+    fetch_transcripts_impl(
+        start_year=start_year,
+        end_year=end_year,
+        out_dir=out_dir,
+        workers=8,
+        overwrite=False,
+        dry_run=False,
+    )
+    
+    click.echo(f"✓ Done. Transcripts saved to {out_dir}")
 
 
 @cli.command()
