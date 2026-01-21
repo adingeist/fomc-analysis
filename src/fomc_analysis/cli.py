@@ -38,6 +38,12 @@ from .featurizer import (
 )
 from .models import EWMAModel, BetaBinomialModel
 from .backtester_v2 import WalkForwardBacktester, save_backtest_result
+from .backtester_v3 import (
+    TimeHorizonBacktester,
+    save_backtest_result_v3,
+    fetch_kalshi_contract_outcomes,
+    fetch_historical_prices_at_horizons,
+)
 from .fetcher import fetch_transcripts as fetch_transcripts_impl
 from .kalshi_client_factory import get_kalshi_client
 
@@ -1053,6 +1059,240 @@ def export_kalshi_contracts(
     finally:
         if kalshi_client and hasattr(kalshi_client, "close"):
             kalshi_client.close()
+
+
+@cli.command(name="backtest-v3")
+@click.option(
+    "--contract-words",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to contract_words.json with Kalshi market data.",
+)
+@click.option(
+    "--segments-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=Path("data/segments"),
+    help="Directory containing segment JSONL files.",
+)
+@click.option(
+    "--model",
+    type=click.Choice(["ewma", "beta"]),
+    default="beta",
+    help="Model type to use.",
+)
+@click.option(
+    "--alpha",
+    type=float,
+    default=1.0,
+    help="Alpha parameter (EWMA smoothing or Beta prior).",
+)
+@click.option(
+    "--beta-prior",
+    type=float,
+    default=1.0,
+    help="Beta prior parameter (Beta-Binomial only).",
+)
+@click.option(
+    "--half-life",
+    type=int,
+    default=4,
+    help="Half-life for exponential decay (Beta-Binomial only).",
+)
+@click.option(
+    "--horizons",
+    type=str,
+    default="7,14,30",
+    help="Comma-separated list of days before meeting to predict (e.g., '7,14,30').",
+)
+@click.option(
+    "--edge-threshold",
+    type=float,
+    default=0.10,
+    help="Minimum edge to trade (default: 0.10 = 10%).",
+)
+@click.option(
+    "--position-size-pct",
+    type=float,
+    default=0.05,
+    help="Fraction of capital per trade (default: 0.05 = 5%).",
+)
+@click.option(
+    "--initial-capital",
+    type=float,
+    default=10000.0,
+    help="Starting capital.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Output directory for backtest results.",
+)
+def backtest_v3(
+    contract_words: Path,
+    segments_dir: Path,
+    model: str,
+    alpha: float,
+    beta_prior: float,
+    half_life: int,
+    horizons: str,
+    edge_threshold: float,
+    position_size_pct: float,
+    initial_capital: float,
+    output: Path,
+):
+    """
+    Run time-horizon backtest with Kalshi contract outcomes.
+
+    This improved backtest:
+    - Fetches actual Kalshi contract outcomes (100% YES or 0% NO)
+    - Makes predictions at 7, 14, and 30 days before each meeting
+    - Tracks prediction accuracy for each time horizon
+    - Simulates realistic trading with Kalshi fees
+    - Provides comprehensive profitability analysis
+
+    Requires contract_words.json file with Kalshi market data including
+    resolved outcomes. Generate this with: analyze-kalshi-contracts command.
+    """
+    import json
+
+    click.echo("=" * 70)
+    click.echo("Time-Horizon Backtest v3")
+    click.echo("=" * 70)
+
+    # Parse horizons
+    horizon_list = [int(h.strip()) for h in horizons.split(",")]
+    click.echo(f"\nPrediction horizons: {horizon_list} days before meetings")
+
+    # Load contract words
+    click.echo(f"\nLoading contract definitions from {contract_words}...")
+    try:
+        contract_data = json.loads(contract_words.read_text())
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid contract words JSON: {exc}") from exc
+
+    if not isinstance(contract_data, list):
+        raise click.ClickException("contract_words file must contain a list of contract entries")
+
+    click.echo(f"  Loaded {len(contract_data)} contracts")
+
+    # Connect to Kalshi API
+    click.echo("\nConnecting to Kalshi API...")
+    try:
+        kalshi_client = get_kalshi_client()
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        # Fetch actual contract outcomes
+        click.echo("Fetching Kalshi contract outcomes...")
+        outcomes_df = fetch_kalshi_contract_outcomes(contract_data, kalshi_client)
+
+        if outcomes_df.empty:
+            raise click.ClickException(
+                "No resolved contract outcomes found. Make sure contract_words.json "
+                "contains resolved markets with 'result' field."
+            )
+
+        click.echo(f"  Found {len(outcomes_df)} resolved contract outcomes")
+        click.echo(f"  Meetings: {outcomes_df['meeting_date'].nunique()}")
+        click.echo(f"  Contracts: {outcomes_df['contract'].nunique()}")
+
+        # Fetch historical prices at horizons
+        click.echo("\nFetching historical prices at prediction horizons...")
+        tickers = outcomes_df["ticker"].unique().tolist()
+        meeting_dates = outcomes_df["meeting_date"].unique()
+
+        prices_df = fetch_historical_prices_at_horizons(
+            tickers=tickers,
+            meeting_dates=meeting_dates,
+            horizons=horizon_list,
+            kalshi_client=kalshi_client,
+        )
+
+        if prices_df.empty:
+            click.echo("  Warning: No historical prices found. Trades will be skipped.")
+        else:
+            click.echo(f"  Fetched {len(prices_df)} price snapshots")
+
+        # Initialize backtester
+        click.echo(f"\nInitializing backtester...")
+        click.echo(f"  Model: {model.upper()}")
+        click.echo(f"  Edge threshold: {edge_threshold * 100:.1f}%")
+        click.echo(f"  Position size: {position_size_pct * 100:.1f}% of capital")
+        click.echo(f"  Initial capital: ${initial_capital:,.2f}")
+
+        backtester = TimeHorizonBacktester(
+            outcomes=outcomes_df,
+            historical_prices=prices_df,
+            horizons=horizon_list,
+            edge_threshold=edge_threshold,
+            position_size_pct=position_size_pct,
+        )
+
+        # Select model
+        if model == "ewma":
+            from .models import EWMAModel
+            model_class = EWMAModel
+            model_params = {"alpha": alpha}
+        else:  # beta
+            from .models import BetaBinomialModel
+            model_class = BetaBinomialModel
+            model_params = {
+                "alpha_prior": alpha,
+                "beta_prior": beta_prior,
+                "half_life": half_life,
+            }
+
+        # Run backtest
+        click.echo("\nRunning backtest...")
+        result = backtester.run(
+            model_class=model_class,
+            model_params=model_params,
+            initial_capital=initial_capital,
+        )
+
+        # Save results
+        output = Path(output)
+        output.mkdir(parents=True, exist_ok=True)
+        click.echo(f"\nSaving results to {output}...")
+        save_backtest_result_v3(result, output)
+
+        # Print summary
+        click.echo("\n" + "=" * 70)
+        click.echo("BACKTEST RESULTS")
+        click.echo("=" * 70)
+
+        click.echo(f"\nOverall Performance:")
+        click.echo(f"  Total predictions: {len(result.predictions)}")
+        click.echo(f"  Total trades: {result.overall_metrics['total_trades']}")
+        click.echo(f"  Win rate: {result.overall_metrics['win_rate'] * 100:.1f}%")
+        click.echo(f"  Total P&L: ${result.overall_metrics['total_pnl']:,.2f}")
+        click.echo(f"  ROI: {result.overall_metrics['roi'] * 100:.1f}%")
+        click.echo(f"  Sharpe ratio: {result.overall_metrics['sharpe']:.2f}")
+        click.echo(f"  Final capital: ${result.overall_metrics['final_capital']:,.2f}")
+
+        click.echo(f"\nPerformance by Time Horizon:")
+        for horizon, metrics in sorted(result.horizon_metrics.items()):
+            click.echo(f"\n  {horizon} days before meeting:")
+            click.echo(f"    Predictions: {metrics.total_predictions}")
+            click.echo(f"    Accuracy: {metrics.accuracy * 100:.1f}%")
+            click.echo(f"    Trades: {metrics.total_trades}")
+            click.echo(f"    Win rate: {metrics.win_rate * 100:.1f}%")
+            click.echo(f"    Total P&L: ${metrics.total_pnl:,.2f}")
+            click.echo(f"    Avg P&L/trade: ${metrics.avg_pnl_per_trade:,.2f}")
+            click.echo(f"    ROI: {metrics.roi * 100:.1f}%")
+            click.echo(f"    Brier score: {metrics.brier_score:.3f}")
+
+        click.echo("\n" + "=" * 70)
+        click.echo("✓ Backtest complete!")
+        click.echo(f"Results saved to: {output}")
+        click.echo("=" * 70)
+
+    finally:
+        if kalshi_client and hasattr(kalshi_client, "close"):
+            kalshi_client.close()
+
 
 if __name__ == "__main__":
     cli()
