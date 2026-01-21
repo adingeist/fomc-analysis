@@ -67,10 +67,8 @@ Given a Kalshi mention contract and market price at time `t`, produce:
 - **Fully deterministic and reproducible**
 
 **Stage B: Speaker Segmentation**
-- **Deterministic mode**: Regex-based speaker turn detection (ALL CAPS patterns)
-- **AI mode** (optional): OpenAI-powered segmentation with **validation**
-  - If AI output fails validation (text similarity < 95%), fall back to deterministic
-  - Validation ensures concatenated segments match cleaned text
+- Regex-based speaker turn detection (ALL CAPS patterns)
+- Automatically classifies speakers into roles: `"powell"`, `"reporter"`, `"moderator"`, `"other"`
 - Output: `data/segments/<date>.jsonl` with fields: `speaker`, `role`, `text`, `confidence`
 
 ### Variant Generation (Cached)
@@ -141,17 +139,10 @@ uv run fomc fetch-transcripts --start-year 2020 --end-year 2025 --out-dir data/r
 ```bash
 uv run fomc parse \
   --input-dir data/raw_pdf \
-  --mode deterministic \
   --segments-dir data/segments
 ```
 
-For AI-assisted parsing (requires OpenAI API key):
-```bash
-uv run fomc parse \
-  --input-dir data/raw_pdf \
-  --mode ai \
-  --segments-dir data/segments
-```
+This uses deterministic parsing to extract speaker segments into JSONL format with proper role assignment (`"powell"`, `"reporter"`, `"moderator"`, `"other"`).
 
 ### 3. Generate Phrase Variants
 
@@ -453,13 +444,10 @@ fomc fetch-transcripts --start-year <year> --end-year <year> --out-dir <dir>
 ```bash
 fomc parse \
   --input-dir <pdf-dir> \
-  --mode <deterministic|ai> \
   --segments-dir <output-dir>
 ```
 
-**Modes:**
-- `deterministic`: Regex-based speaker segmentation (fast, no API costs)
-- `ai`: OpenAI-assisted segmentation with validation fallback
+Uses deterministic regex-based parsing to extract speaker segments with role classification.
 
 **Output:**
 - `data/raw_text/<date>.txt` – Raw extracted text with page markers
@@ -706,27 +694,9 @@ See `src/fomc_analysis/prompts/MENTIONS_CONTRACT_RULES.md` for full Kalshi resol
 
 ## AI Usage and Validation
 
-This toolkit uses OpenAI's API in two places:
+This toolkit uses OpenAI's API for phrase variant generation:
 
-### 1. Speaker Segmentation (Optional)
-
-**When:** Using `--mode ai` in `parse` command
-
-**Prompt:** Asks GPT to segment transcript into speaker turns
-
-**Validation:**
-- Concatenate AI-generated segments
-- Compare with deterministic cleaned text
-- Check similarity (must be ≥ 95%)
-- Check coverage (must be ≥ 90%)
-- **If validation fails:** fall back to deterministic segmentation
-
-**Why use AI mode?**
-- Can handle unusual transcript formatting
-- Better at identifying ambiguous speaker labels
-- Always validated against ground truth
-
-### 2. Phrase Variant Generation (Required for `variants` mode)
+### Phrase Variant Generation (Required for `variants` mode)
 
 **When:** Running `build-variants` command
 
@@ -1039,10 +1009,7 @@ uv run pytest --cov=fomc_analysis --cov-report=html
 ### Parsing Issues
 
 **Problem:** Segmentation misses some speakers
-**Solution:** Use `--mode ai` for AI-assisted segmentation
-
-**Problem:** AI segmentation fails validation
-**Fix:** System automatically falls back to deterministic mode. Check logs for warnings.
+**Solution:** The deterministic parser uses regex patterns for common speaker labels. Check the segment files to verify speaker roles are correctly assigned (`"powell"`, `"reporter"`, etc.).
 
 ### Backtesting
 

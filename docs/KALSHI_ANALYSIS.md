@@ -157,6 +157,13 @@ Uses OpenAI to generate variants following Kalshi resolution rules:
 Scans transcripts using word-boundary matching to avoid false positives:
 
 ```python
+# Filter for Powell's statements only
+if scope == "powell_only":
+    text_parts = [
+        seg["text"] for seg in segments
+        if seg.get("role", "").lower() == "powell"
+    ]
+
 # Uses regex word boundaries
 pattern = r'\b' + re.escape(variant_lower) + r'\b'
 
