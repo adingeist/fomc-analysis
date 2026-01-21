@@ -2,8 +2,12 @@
 Fetch FOMC press conference transcript PDFs from the Federal Reserve website.
 
 Strategy:
-- Scrape https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm
-  and collect all meeting pages whose URL contains "fomcpresconfYYYYMMDD.htm".
+- For 2020 and earlier:
+  * Scrape https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm
+  * Collect all meeting pages whose URL contains "fomcpresconfYYYYMMDD.htm".
+- For 2021 and later:
+  * Scrape https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+  * Collect all press conference meeting pages (fomcpresconfYYYYMMDD.htm).
 - Extract the date from each meeting page URL.
 - Construct PDF URL directly: https://www.federalreserve.gov/mediacenter/files/FOMCpresconfYYYYMMDD.pdf
 - Write an index CSV: date, meeting_page_url, pdf_url, local_path.
@@ -27,6 +31,7 @@ FED_BASE = "https://www.federalreserve.gov"
 YEAR_PAGE_TMPL = (
     "https://www.federalreserve.gov/monetarypolicy/fomchistorical{year}.htm"
 )
+CALENDAR_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
 
 UA = "powell-transcript-fetcher/1.0 (+https://www.federalreserve.gov)"
 
@@ -48,7 +53,15 @@ def http_get(url: str, timeout: int = 30) -> requests.Response:
 
 
 def parse_year_for_meeting_pages(year: int) -> list[str]:
-    """Return all press-conference meeting page URLs for a given year."""
+    """Return all press-conference meeting page URLs for a given year.
+
+    For 2020 and earlier: scrapes historical pages (fomchistoricalYYYY.htm)
+    For 2021 and later: scrapes the calendar page (fomccalendars.htm)
+    """
+    if year >= 2021:
+        return parse_calendar_for_year(year)
+
+    # For 2020 and earlier, use historical pages
     url = YEAR_PAGE_TMPL.format(year=year)
     html = http_get(url).text
     soup = BeautifulSoup(html, "html.parser")
@@ -58,6 +71,28 @@ def parse_year_for_meeting_pages(year: int) -> list[str]:
         href = a["href"]
         if "fomcpresconf" in href.lower() and href.lower().endswith(".htm"):
             meeting_pages.add(urljoin(FED_BASE, href))
+    return sorted(meeting_pages)
+
+
+def parse_calendar_for_year(year: int) -> list[str]:
+    """Return all press-conference meeting page URLs for a given year from the calendar page.
+
+    Used for 2021+, where meetings are listed on fomccalendars.htm
+    """
+    html = http_get(CALENDAR_URL).text
+    soup = BeautifulSoup(html, "html.parser")
+
+    meeting_pages: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "fomcpresconf" in href.lower() and href.lower().endswith(".htm"):
+            # Extract year from URL to filter by requested year
+            date_match = DATE_RE.search(href)
+            if date_match:
+                date_str = date_match.group(1)
+                url_year = int(date_str[:4])
+                if url_year == year:
+                    meeting_pages.add(urljoin(FED_BASE, href))
     return sorted(meeting_pages)
 
 
