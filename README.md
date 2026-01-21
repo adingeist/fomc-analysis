@@ -730,6 +730,29 @@ uv run pytest --cov=fomc_analysis --cov-report=html
 
 ---
 
+## Kalshi SDK Authentication (API Keys)
+
+Kalshi's Python SDK requires signing requests with your RSA private key. This
+project includes a helper that reads a private key from a file created from
+`KALSHI_PRIVATE_KEY_BASE64`, then initializes the SDK client with your key ID.
+
+Set the following environment variables:
+
+```bash
+export KALSHI_API_KEY_ID="your_key_id"
+export KALSHI_PRIVATE_KEY_BASE64="base64_encoded_private_key"
+```
+
+Then run the connectivity check:
+
+```bash
+python -m fomc_analysis.kalshi_sdk
+```
+
+If authentication succeeds, it prints the current exchange status.
+
+---
+
 ## Contributions
 
 This is a research/educational toolkit. Contributions welcome:
