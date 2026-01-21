@@ -1,0 +1,145 @@
+"""
+Tests for probability models and uncertainty estimation.
+"""
+
+import pytest
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import tempfile
+
+from fomc_analysis.models import EWMAModel, BetaBinomialModel
+
+
+class TestEWMAModel:
+    """Tests for EWMA model."""
+
+    def test_fit_and_predict(self):
+        """Test basic fit and predict."""
+        # Create simple binary event data
+        events = pd.DataFrame({
+            "Contract1": [1, 0, 1, 1, 0],
+            "Contract2": [0, 0, 1, 1, 1],
+        })
+
+        model = EWMAModel(alpha=0.5)
+        model.fit(events)
+
+        predictions = model.predict()
+
+        assert len(predictions) == 2
+        assert "probability" in predictions.columns
+        assert "lower_bound" in predictions.columns
+        assert "upper_bound" in predictions.columns
+        assert "uncertainty" in predictions.columns
+
+        # Probabilities should be between 0 and 1
+        assert all(0 <= p <= 1 for p in predictions["probability"])
+
+    def test_save_and_load(self):
+        """Test model persistence."""
+        events = pd.DataFrame({
+            "Contract1": [1, 0, 1, 1, 0],
+        })
+
+        model = EWMAModel(alpha=0.6)
+        model.fit(events)
+
+        pred_before = model.predict()
+
+        # Save and load
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "model.json"
+            model.save(path)
+
+            loaded_model = EWMAModel.load(path)
+            pred_after = loaded_model.predict()
+
+        # Predictions should be identical
+        pd.testing.assert_frame_equal(pred_before, pred_after)
+
+
+class TestBetaBinomialModel:
+    """Tests for Beta-Binomial model."""
+
+    def test_fit_and_predict(self):
+        """Test basic fit and predict."""
+        events = pd.DataFrame({
+            "Contract1": [1, 0, 1, 1, 0],
+            "Contract2": [0, 0, 1, 1, 1],
+        })
+
+        model = BetaBinomialModel(alpha_prior=1.0, beta_prior=1.0)
+        model.fit(events)
+
+        predictions = model.predict()
+
+        assert len(predictions) == 2
+        assert "probability" in predictions.columns
+        assert "lower_bound" in predictions.columns
+        assert "upper_bound" in predictions.columns
+        assert "uncertainty" in predictions.columns
+
+        # Probabilities should be between 0 and 1
+        assert all(0 <= p <= 1 for p in predictions["probability"])
+
+        # Lower bound should be less than upper bound
+        for _, row in predictions.iterrows():
+            assert row["lower_bound"] <= row["probability"] <= row["upper_bound"]
+
+    def test_uniform_prior(self):
+        """Test that uniform prior (alpha=1, beta=1) gives reasonable results."""
+        # All events are 1s
+        events = pd.DataFrame({
+            "AlwaysYes": [1, 1, 1, 1, 1],
+        })
+
+        model = BetaBinomialModel(alpha_prior=1.0, beta_prior=1.0)
+        model.fit(events)
+
+        predictions = model.predict()
+
+        # With 5 successes and 0 failures, probability should be high
+        assert predictions.iloc[0]["probability"] > 0.7
+
+    def test_exponential_decay(self):
+        """Test exponential decay weighting."""
+        # Recent events are 1, older events are 0
+        events = pd.DataFrame({
+            "Contract": [0, 0, 0, 1, 1],
+        })
+
+        # Without decay
+        model_no_decay = BetaBinomialModel(half_life=None)
+        model_no_decay.fit(events)
+        pred_no_decay = model_no_decay.predict()
+
+        # With decay (half_life=2 means recent events weighted more)
+        model_decay = BetaBinomialModel(half_life=2)
+        model_decay.fit(events)
+        pred_decay = model_decay.predict()
+
+        # With decay, probability should be higher (recent events are 1s)
+        assert pred_decay.iloc[0]["probability"] > pred_no_decay.iloc[0]["probability"]
+
+    def test_save_and_load(self):
+        """Test model persistence."""
+        events = pd.DataFrame({
+            "Contract1": [1, 0, 1, 1, 0],
+        })
+
+        model = BetaBinomialModel(alpha_prior=2.0, beta_prior=1.0, half_life=3)
+        model.fit(events)
+
+        pred_before = model.predict()
+
+        # Save and load
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "model.json"
+            model.save(path)
+
+            loaded_model = BetaBinomialModel.load(path)
+            pred_after = loaded_model.predict()
+
+        # Predictions should be identical
+        pd.testing.assert_frame_equal(pred_before, pred_after)
