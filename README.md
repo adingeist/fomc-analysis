@@ -31,6 +31,7 @@ This project implements a **systematic, reproducible pipeline** for:
 5. **Training** baseline probability models with uncertainty estimates
 6. **Backtesting** strategies using walk-forward validation (no lookahead)
 7. **Reporting** mispricing opportunities
+8. **Analyzing Kalshi contracts** - Fetch live contracts, generate variants, build historical statistics
 
 **Main Objective:**
 Given a Kalshi mention contract and market price at time `t`, produce:
@@ -951,9 +952,12 @@ fomc featurize [OPTIONS]
 fomc train [OPTIONS]
 fomc backtest [OPTIONS]
 fomc report [OPTIONS]
+fomc analyze-kalshi-contracts [OPTIONS]  # NEW: Analyze Kalshi mention contracts
 ```
 
 Run `fomc <command> --help` for detailed options.
+
+**New in this release:** `analyze-kalshi-contracts` command fetches Kalshi mention contracts, generates word variants using OpenAI, and builds statistical analysis of historical mention frequencies. See [docs/KALSHI_ANALYSIS.md](docs/KALSHI_ANALYSIS.md) for details.
 
 ### Python API
 
