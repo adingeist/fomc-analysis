@@ -159,6 +159,79 @@ class KalshiClient:
         daily = daily.rename(columns={"price": ticker})
         return daily
 
+    def get_series(self, series_ticker: str) -> Dict[str, Any]:
+        """Fetch information about a series.
+
+        Parameters
+        ----------
+        series_ticker: str
+            The series ticker (e.g., "KXFEDMENTION").
+
+        Returns
+        -------
+        Dict[str, Any]
+            Series information including title, frequency, contract terms, etc.
+        """
+        data = self._request("GET", f"/series/{series_ticker}")
+        return data.get("series", {})
+
+    def get_event(
+        self, event_ticker: str, with_nested_markets: bool = True
+    ) -> Dict[str, Any]:
+        """Fetch information about an event.
+
+        Parameters
+        ----------
+        event_ticker: str
+            The event ticker (e.g., "kxfedmention-26jan").
+        with_nested_markets: bool, default=True
+            If True, include nested market data in the response.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Event information including title, markets, strike date, etc.
+        """
+        params = {"with_nested_markets": str(with_nested_markets).lower()}
+        data = self._request("GET", f"/events/{event_ticker}", params=params)
+        return data
+
+    def get_markets(
+        self,
+        series_ticker: Optional[str] = None,
+        event_ticker: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[Dict[str, Any]]:
+        """Fetch markets with optional filtering.
+
+        Parameters
+        ----------
+        series_ticker: Optional[str]
+            Filter by series ticker.
+        event_ticker: Optional[str]
+            Filter by event ticker.
+        status: Optional[str]
+            Filter by status (e.g., "open", "closed").
+        limit: int, default=200
+            Maximum number of markets to return.
+
+        Returns
+        -------
+        list[Dict[str, Any]]
+            List of market objects.
+        """
+        params = {"limit": limit}
+        if series_ticker:
+            params["series_ticker"] = series_ticker
+        if event_ticker:
+            params["event_ticker"] = event_ticker
+        if status:
+            params["status"] = status
+
+        data = self._request("GET", "/markets", params=params)
+        return data.get("markets", [])
+
     # ------------------------------------------------------------------
     # Placeholder methods for trade execution
     # ------------------------------------------------------------------
