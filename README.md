@@ -42,7 +42,7 @@ Given a Kalshi mention contract and market price at time `t`, produce:
 
 **We do not place real trades.** Paper/backtest only.
 
-### ✨ NEW: Time-Horizon Backtest v3
+### ✨ NEW: Time-Horizon Backtest v3 with Automated E2E Pipeline
 
 The improved backtest system (v3) provides realistic performance evaluation:
 
@@ -51,21 +51,36 @@ The improved backtest system (v3) provides realistic performance evaluation:
 - ✅ **Accuracy Tracking**: Measures prediction accuracy for each time horizon
 - ✅ **Realistic Trading**: Includes Kalshi's 7% fee on profits and proper position sizing
 - ✅ **Comprehensive Metrics**: ROI, Sharpe ratio, Brier score, win rate per horizon
+- ✅ **Visual Analytics**: Automated word frequency charts for traded contracts
 
-**Quick Start**:
+**🚀 One-Command E2E Pipeline**:
+```bash
+# Complete automated workflow (fetch → parse → analyze → backtest → visualize)
+python run_e2e_backtest.py --clean
+
+# Quick re-run with existing data
+python run_e2e_backtest.py --skip-fetch --skip-parse --skip-analyze
+
+# Test visualization only
+python test_visualization.py
+```
+
+**Manual Step-by-Step**:
 ```bash
 # Run the complete workflow
 bash examples/run_backtest_v3.sh
 
 # Or run manually
-fomc-analysis backtest-v3 \
+fomc backtest-v3 \
   --contract-words data/kalshi_analysis/contract_words.json \
   --model beta \
   --horizons "7,14,30" \
   --output results/backtest_v3
 ```
 
-📖 **See [docs/BACKTEST_V3_GUIDE.md](docs/BACKTEST_V3_GUIDE.md) for detailed documentation**
+📖 **Documentation**:
+- [E2E Backtest Guide](E2E_BACKTEST_GUIDE.md) - Automated pipeline
+- [Backtest v3 Guide](docs/BACKTEST_V3_GUIDE.md) - Detailed manual usage
 
 ---
 
