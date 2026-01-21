@@ -42,6 +42,31 @@ Given a Kalshi mention contract and market price at time `t`, produce:
 
 **We do not place real trades.** Paper/backtest only.
 
+### ✨ NEW: Time-Horizon Backtest v3
+
+The improved backtest system (v3) provides realistic performance evaluation:
+
+- ✅ **Actual Kalshi Outcomes**: Uses real contract resolution data (100% YES / 0% NO)
+- ✅ **Multi-Horizon Predictions**: Tests predictions at 7, 14, and 30 days before meetings
+- ✅ **Accuracy Tracking**: Measures prediction accuracy for each time horizon
+- ✅ **Realistic Trading**: Includes Kalshi's 7% fee on profits and proper position sizing
+- ✅ **Comprehensive Metrics**: ROI, Sharpe ratio, Brier score, win rate per horizon
+
+**Quick Start**:
+```bash
+# Run the complete workflow
+bash examples/run_backtest_v3.sh
+
+# Or run manually
+fomc-analysis backtest-v3 \
+  --contract-words data/kalshi_analysis/contract_words.json \
+  --model beta \
+  --horizons "7,14,30" \
+  --output results/backtest_v3
+```
+
+📖 **See [docs/BACKTEST_V3_GUIDE.md](docs/BACKTEST_V3_GUIDE.md) for detailed documentation**
+
 ---
 
 ## Architecture
