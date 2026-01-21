@@ -206,6 +206,225 @@ uv run fomc report \
 
 ---
 
+## Threshold Contracts Workflow
+
+This section demonstrates the complete workflow for analyzing **count-threshold contracts** (e.g., "Inflation 40+ times", "Price 15+").
+
+### Prerequisites
+
+1. Transcripts have been fetched and parsed (steps 1-2 above)
+2. Contract mapping includes threshold specifications (see [Adding New Contracts](#adding-new-contracts))
+
+### Complete Workflow
+
+**1. Generate Labels for All Four Modes**
+
+```python
+from pathlib import Path
+from fomc_analysis.contract_mapping import load_mapping_from_file
+from fomc_analysis.label_generator import (
+    generate_labels_for_transcript,
+    labels_to_dataframe,
+    generate_label_matrix,
+)
+from fomc_analysis.parsing.speaker_segmenter import load_segments_jsonl
+
+# Load contract specifications
+mapping = load_mapping_from_file("configs/contract_mapping.yaml")
+
+# Load segments for a transcript
+segments = load_segments_jsonl("data/segments/20250115.jsonl")
+
+# Generate labels for all four modes
+labels = generate_labels_for_transcript(
+    segments=segments,
+    mapping=mapping,
+    variants_dir=Path("data/variants"),
+)
+
+# Convert to DataFrame
+df = labels_to_dataframe(labels)
+print(df[["contract", "mode", "count", "threshold_hit", "debug_snippets"]])
+```
+
+**Output example:**
+```
+           contract                          mode  count  threshold_hit                debug_snippets
+0    Inflation 40+  powell_only_strict_literal     42              1  'inflation': ...inflation expec...
+1    Inflation 40+       powell_only_variants     44              1  'inflation': ...inflation expec...
+2    Inflation 40+  full_transcript_strict...     45              1  'inflation': ...inflation expec...
+3    Inflation 40+  full_transcript_variants     47              1  'inflation': ...inflation expec...
+```
+
+**2. Build Label Matrix for a Specific Mode**
+
+```python
+# Generate binary threshold_hit matrix for backtesting
+events = generate_label_matrix(
+    segments_dir=Path("data/segments"),
+    mapping=mapping,
+    variants_dir=Path("data/variants"),
+    mode="powell_only_strict_literal",  # Choose one of four modes
+)
+
+# events is a DataFrame with rows=dates, columns=contracts, values=threshold_hit (0/1)
+print(events.head())
+```
+
+**3. Train Model on Threshold Outcomes**
+
+```python
+from fomc_analysis.models import BetaBinomialModel
+
+# Train on threshold_hit binary outcomes
+model = BetaBinomialModel(alpha_prior=1.0, beta_prior=1.0, half_life=4)
+model.fit(events)
+
+# Predict P(count >= threshold) for each contract
+predictions = model.predict()
+print(predictions[["contract", "probability", "lower_bound", "upper_bound"]])
+```
+
+**4. Generate Mispricing Table**
+
+```python
+from fomc_analysis.mispricing import (
+    compute_mispricing,
+    create_mispricing_table,
+    print_mispricing_report,
+    load_market_prices_from_csv,
+)
+
+# Load Kalshi market prices (you need to provide this)
+market_prices = load_market_prices_from_csv("data/kalshi_prices_20250115.csv")
+
+# Compute mispricing
+mispricing_results = compute_mispricing(
+    model_predictions=predictions,
+    market_prices=market_prices,
+    edge_threshold=0.05,
+)
+
+# Create mispricing table
+table = create_mispricing_table(mispricing_results, sort_by="abs_edge")
+
+# Print formatted report
+print_mispricing_report(table, top_n=5, timestamp="2025-01-15T10:00:00")
+```
+
+**Example output:**
+```
+================================================================================
+MISPRICING REPORT
+Timestamp: 2025-01-15T10:00:00
+================================================================================
+
+Total contracts analyzed: 18
+YES recommendations: 5
+NO recommendations: 3
+PASS (no edge): 10
+
+--------------------------------------------------------------------------------
+TOP 5 YES OPPORTUNITIES (Buy YES - Model believes higher prob)
+--------------------------------------------------------------------------------
+        contract  model_prob  market_prob   edge  confidence
+   Inflation 40+        0.85         0.65   0.20        0.82
+      Price 15+        0.72         0.42   0.30        0.75
+  Unemployment 8+        0.68         0.58   0.10        0.88
+      Growth 8+        0.55         0.48   0.07        0.79
+
+--------------------------------------------------------------------------------
+TOP 5 NO OPPORTUNITIES (Buy NO - Model believes lower prob)
+--------------------------------------------------------------------------------
+        contract  model_prob  market_prob  edge_magnitude  confidence
+      Tariff 5+        0.25         0.55            0.30        0.81
+         Cut 7+        0.40         0.65            0.25        0.77
+```
+
+**5. Run Walk-Forward Backtest**
+
+```python
+from fomc_analysis.backtester_v2 import WalkForwardBacktester
+
+# Create backtester with threshold_hit events
+backtester = WalkForwardBacktester(
+    events=events,  # threshold_hit matrix from step 2
+    prices=market_prices,
+    edge_threshold=0.05,
+    position_size_pct=0.02,
+    fee_rate=0.07,
+    min_train_window=5,
+)
+
+# Run backtest
+result = backtester.run(
+    model_class=BetaBinomialModel,
+    model_params={"alpha_prior": 1.0, "beta_prior": 1.0, "half_life": 4},
+    initial_capital=1000.0,
+)
+
+# Print metrics
+print("ROI:", result.metrics["roi"])
+print("Sharpe:", result.metrics["sharpe"])
+print("Win Rate:", result.metrics["win_rate"])
+print("Brier Score:", result.metrics["brier_score"])
+```
+
+**6. Analyze Results by Contract**
+
+```python
+import pandas as pd
+
+trades_df = pd.DataFrame([asdict(t) for t in result.trades])
+
+# Group by contract
+contract_performance = trades_df.groupby("contract").agg({
+    "pnl": ["count", "sum", "mean"],
+    "edge": "mean",
+}).round(3)
+
+print(contract_performance)
+```
+
+### Mode Comparison Analysis
+
+Compare performance across all four resolution modes:
+
+```python
+# Generate events for each mode
+modes = [
+    "powell_only_strict_literal",
+    "powell_only_variants",
+    "full_transcript_strict_literal",
+    "full_transcript_variants",
+]
+
+results_by_mode = {}
+
+for mode in modes:
+    # Generate events
+    events = generate_label_matrix(
+        segments_dir=Path("data/segments"),
+        mapping=mapping,
+        variants_dir=Path("data/variants"),
+        mode=mode,
+    )
+
+    # Run backtest
+    backtester = WalkForwardBacktester(events, prices, edge_threshold=0.05)
+    result = backtester.run(BetaBinomialModel, initial_capital=1000.0)
+
+    results_by_mode[mode] = result.metrics
+
+# Compare
+comparison = pd.DataFrame(results_by_mode).T
+print(comparison[["roi", "sharpe", "win_rate", "brier_score"]])
+```
+
+This helps identify which resolution mode (speaker scope + match mode) best aligns with actual Kalshi contract outcomes.
+
+---
+
 ## Pipeline Stages
 
 ### 1. Fetch Transcripts
@@ -408,9 +627,21 @@ fomc report \
 
 ## Resolution Modes
 
-Kalshi mention contracts have specific resolution criteria. This toolkit supports two critical toggles:
+Kalshi mention contracts have specific resolution criteria. This toolkit supports multiple resolution modes and contract types:
 
-### 1. Speaker Mode
+### Contract Types
+
+**Binary Mention Contracts (threshold = 1):**
+- Resolve YES if the term is mentioned at least once
+- Examples: "Good Afternoon", "AI / Artificial Intelligence", "Crypto / Bitcoin"
+- Default behavior if no threshold is specified
+
+**Count-Threshold Contracts (threshold ≥ N):**
+- Resolve YES only if the term appears ≥ N times
+- Examples: "Inflation 40+ times", "Price 15+", "Tariff 5+", "Cut 7+"
+- Requires explicit `threshold` configuration in contract spec
+
+### 1. Speaker Mode (Scope)
 
 **`powell_only`** (recommended for most contracts):
 - Count mentions ONLY in Chair Powell's remarks
@@ -420,17 +651,41 @@ Kalshi mention contracts have specific resolution criteria. This toolkit support
 **`full_transcript`**:
 - Count mentions from ALL speakers
 - Use only if contract explicitly includes reporter questions
+- Example: "Tariff 5+" contract with full transcript scope
 
-### 2. Phrase Mode
+### 2. Phrase Mode (Match Mode)
 
-**`strict`**:
+**`strict_literal`**:
 - Use only base phrases from `contract_mapping.yaml`
-- Conservative matching
+- Conservative matching with word boundaries
+- Avoids partial matches (e.g., "inflation" won't match "inflationary")
 
 **`variants`**:
 - Use AI-generated phrase variants
 - Includes plurals, possessives, compound forms
 - More comprehensive but requires variant generation
+- Example: "price" → ["price", "prices", "pricing"]
+
+### 3. Count Unit
+
+**`token`** (default):
+- Count individual word occurrences
+- Each separate mention counts toward threshold
+- Example: "inflation" mentioned 40 times → count = 40
+
+**`phrase`**:
+- Count complete phrase occurrences
+- For multi-word phrases like "balance of risks"
+
+### Four-Mode Label Generation
+
+For each contract, the system can compute labels under all four combinations:
+1. `powell_only` + `strict_literal`
+2. `powell_only` + `variants`
+3. `full_transcript` + `strict_literal`
+4. `full_transcript` + `variants`
+
+This enables analysis of which resolution mode most closely aligns with actual Kalshi outcomes.
 
 ### Alignment with Kalshi Rules
 
@@ -544,13 +799,83 @@ for t in range(min_train_window, len(events)):
 
 Edit `configs/contract_mapping.yaml`:
 
+**Binary Mention Contract (threshold = 1, default):**
 ```yaml
 "New Contract Name":
   synonyms:
     - new phrase
     - another variant
+  threshold: 1  # Optional, defaults to 1
+  scope: powell_only  # Optional, defaults to "powell_only"
+  match_mode: strict_literal  # Optional, defaults to "strict_literal"
   description: Human-readable description of contract
 ```
+
+**Count-Threshold Contract (e.g., "Inflation 40+ times"):**
+```yaml
+"Inflation 40+":
+  synonyms:
+    - inflation
+  threshold: 40  # Resolves YES only if count >= 40
+  scope: powell_only
+  match_mode: strict_literal
+  count_unit: token  # Optional, defaults to "token"
+  description: Powell mentions "inflation" at least 40 times
+```
+
+**Multi-phrase Variant Contract:**
+```yaml
+"Price 15+":
+  synonyms:
+    - price
+    - prices
+    - pricing
+  threshold: 15
+  scope: powell_only
+  match_mode: variants  # Use AI-generated variants
+  description: Powell mentions price/prices/pricing at least 15 times
+```
+
+**Full Transcript Contract:**
+```yaml
+"Tariff 5+":
+  synonyms:
+    - tariff
+    - tariffs
+  threshold: 5
+  scope: full_transcript  # Count all speakers, not just Powell
+  match_mode: variants
+  description: Tariff/tariffs mentioned at least 5 times in full transcript
+```
+
+### Contract Configuration Fields
+
+- **`synonyms`** (required): List of lowercase phrase variants to match
+- **`threshold`** (optional, default=1): Minimum count for contract to resolve YES
+- **`scope`** (optional, default="powell_only"): Speaker filter
+  - `powell_only`: Count only Powell's remarks
+  - `full_transcript`: Count all speakers
+- **`match_mode`** (optional, default="strict_literal"): How to match phrases
+  - `strict_literal`: Use only base synonyms with word boundaries
+  - `variants`: Use AI-generated variants
+- **`count_unit`** (optional, default="token"): What to count
+  - `token`: Individual word occurrences
+  - `phrase`: Complete phrase occurrences
+- **`description`** (optional): Human-readable description
+
+### Ambiguous Terms and Word Boundaries
+
+The system uses **word-boundary matching** to avoid false positives:
+
+- ✅ "inflation" matches "inflation" (exact word)
+- ❌ "inflation" does NOT match "inflationary" (different word)
+- ✅ "cut" matches "cut" but NOT "cutting" or "cutback"
+- ✅ "price" + "prices" as variants counts both separately
+
+**Best practices for ambiguous terms:**
+- For "cut" contracts: Use `["cut", "cuts"]` as synonyms to avoid "cutting"
+- For "price" contracts: Use `["price", "prices", "pricing"]` as variants
+- For "growth" contracts: Use `["growth"]` only (not "grow", "growing")
 
 ### 2. Generate Variants
 
