@@ -1,91 +1,217 @@
 # Default contract mapping for the Powell analysis toolkit.
 #
 # This YAML file defines a mapping from market contract names to
-# synonyms or phrase variants that are counted as a “mention” when
-# scanning Jerome Powell’s remarks.  Contracts correspond to markets
-# offered by prediction exchanges such as Kalshi (e.g. “AI /
-# Artificial Intelligence”, “Median”, “Projection”).
+# synonyms or phrase variants that are counted as a "mention" when
+# scanning Jerome Powell's remarks.  Contracts correspond to markets
+# offered by prediction exchanges such as Kalshi (e.g. "AI /
+# Artificial Intelligence", "Median", "Projection").
 #
-# Each top‑level key is the contract name as it appears on the
+# Each top-level key is the contract name as it appears on the
 # market.  Under each contract you may specify:
 #   synonyms: A list of lowercase strings.  Each string is a
 #     variant that should count as a mention.  Synonyms should be
 #     written in lowercase for consistency.  The parser will lower
 #     case both the transcript and the synonyms before matching.
-#   description: (optional) A human‑readable description of the
+#   threshold: (optional) Minimum count required for contract to resolve YES.
+#     Default is 1 for binary mention contracts. Set to higher values for
+#     count-threshold contracts (e.g., "Inflation 40+ times" -> threshold: 40)
+#   scope: (optional) Which text to search: "powell_only" or "full_transcript"
+#     Default is "powell_only"
+#   match_mode: (optional) How to match phrases: "strict_literal" or "variants"
+#     Default is "strict_literal"
+#   count_unit: (optional) What to count: "token" or "phrase"
+#     Default is "token" (individual word occurrences)
+#   description: (optional) A human-readable description of the
 #     contract.  This field is ignored by the code but may be
 #     useful for documentation.
 #
 # You should adjust this file to match the exact resolution rules of
-# the market.  For example, if Kalshi counts any mention of “AI” or
-# “artificial intelligence” regardless of context, include both
+# the market.  For example, if Kalshi counts any mention of "AI" or
+# "artificial intelligence" regardless of context, include both
 # variants here.  If the contract resolves only on prepared remarks
 # and not Q&A, you could exclude synonyms that appear only in
-# reporters’ questions.
+# reporters' questions.
+
+# ===== COUNT-THRESHOLD CONTRACTS =====
+# These contracts resolve YES only if the term appears >= N times
+
+"Inflation 40+":
+  synonyms:
+    - inflation
+  threshold: 40
+  scope: powell_only
+  match_mode: strict_literal
+  count_unit: token
+  description: Powell mentions "inflation" at least 40 times
+
+"Inflation 50+":
+  synonyms:
+    - inflation
+  threshold: 50
+  scope: powell_only
+  match_mode: strict_literal
+  count_unit: token
+  description: Powell mentions "inflation" at least 50 times
+
+"Price 15+":
+  synonyms:
+    - price
+    - prices
+    - pricing
+  threshold: 15
+  scope: powell_only
+  match_mode: variants
+  count_unit: token
+  description: Powell mentions price/prices/pricing at least 15 times
+
+"Tariff 5+":
+  synonyms:
+    - tariff
+    - tariffs
+  threshold: 5
+  scope: full_transcript
+  match_mode: variants
+  count_unit: token
+  description: Tariff/tariffs mentioned at least 5 times in full transcript
+
+"Unemployment 8+":
+  synonyms:
+    - unemployment
+  threshold: 8
+  scope: powell_only
+  match_mode: strict_literal
+  count_unit: token
+  description: Powell mentions "unemployment" at least 8 times
+
+"Growth 8+":
+  synonyms:
+    - growth
+  threshold: 8
+  scope: powell_only
+  match_mode: strict_literal
+  count_unit: token
+  description: Powell mentions "growth" at least 8 times
+
+"Cut 7+":
+  synonyms:
+    - cut
+    - cuts
+  threshold: 7
+  scope: powell_only
+  match_mode: strict_literal
+  count_unit: token
+  description: Powell mentions "cut/cuts" at least 7 times (word-boundary matched to avoid "cut back", etc.)
+
+# ===== BINARY MENTION CONTRACTS =====
+# These contracts resolve YES if mentioned at least once (threshold=1, default)
 
 Median:
   synonyms:
     - median
     - medians
-  description: Mention of the term "median" in relation to SEP or projections.
+  threshold: 1
+  scope: powell_only
+  match_mode: strict_literal
+  description: Mention of the term "median" in relation to SEP or projections
 
 Projection:
   synonyms:
     - projection
     - projections
-  description: Discussion of economic projections, including dot plots and SEP.
+  threshold: 1
+  scope: powell_only
+  match_mode: strict_literal
+  description: Discussion of economic projections, including dot plots and SEP
 
 "AI / Artificial Intelligence":
   synonyms:
     - ai
     - artificial intelligence
-  description: Any reference to artificial intelligence, AI, or related technologies.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Any reference to artificial intelligence, AI, or related technologies
 
 Tax:
   synonyms:
     - tax
     - taxes
-  description: Mentions of tax policy or taxation.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Mentions of tax policy or taxation
 
 Expectation:
   synonyms:
     - expectation
     - expectations
-  description: References to expectations, often in the context of inflation expectations.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: References to expectations, often in the context of inflation expectations
 
 Pandemic:
   synonyms:
     - pandemic
     - pandemics
     - covid
-  description: Mentions of the pandemic, COVID‑19, or related impacts.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Mentions of the pandemic, COVID-19, or related impacts
 
 Layoff:
   synonyms:
     - layoff
     - layoffs
-  description: Discussion of layoffs or job cuts.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Discussion of layoffs or job cuts
 
 "Balance of Risk":
   synonyms:
     - balance of risks
     - balanced risks
-  description: Discussion of the balance of risks around the economic outlook.
+  threshold: 1
+  scope: powell_only
+  match_mode: strict_literal
+  description: Discussion of the balance of risks around the economic outlook
 
 "Tariff Inflation":
   synonyms:
     - tariff
     - tariffs
     - tariff inflation
-  description: Mentions of tariffs or tariff‑induced inflation.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Mentions of tariffs or tariff-induced inflation
 
 Anchor:
   synonyms:
     - anchor
     - anchored
-  description: References to anchoring expectations, such as inflation expectations.
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: References to anchoring expectations, such as inflation expectations
 
 "Good Afternoon":
   synonyms:
     - good afternoon
-  description: The introductory greeting “Good afternoon” from the chair.
+  threshold: 1
+  scope: powell_only
+  match_mode: strict_literal
+  description: The introductory greeting "Good afternoon" from the chair
+
+"Crypto / Bitcoin":
+  synonyms:
+    - crypto
+    - cryptocurrency
+    - cryptocurrencies
+    - bitcoin
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Any mention of cryptocurrency, crypto, bitcoin, or related digital currencies
