@@ -45,6 +45,7 @@ class TestEWMAModel:
         model = EWMAModel(alpha=0.6)
         model.fit(events)
 
+        np.random.seed(0)
         pred_before = model.predict()
 
         # Save and load
@@ -53,6 +54,7 @@ class TestEWMAModel:
             model.save(path)
 
             loaded_model = EWMAModel.load(path)
+            np.random.seed(0)
             pred_after = loaded_model.predict()
 
         # Predictions should be identical
@@ -141,6 +143,34 @@ class TestBetaBinomialModel:
         # With no historical data, the model should revert to the prior (0.5 for alpha=beta=1)
         contract2 = predictions[predictions["contract"] == "Contract2"].iloc[0]
         assert contract2["probability"] == pytest.approx(0.5)
+
+    def test_prior_strength_uses_contract_base_rates(self):
+        """Contract-specific priors should pull frequent mentions higher."""
+        events = pd.DataFrame({
+            "Often": [1, 1, 1, 1, 1],
+            "Rare": [1, 0, 0, 0, 0],
+        })
+
+        model = BetaBinomialModel(prior_strength=10.0, min_history=3)
+        model.fit(events)
+
+        predictions = model.predict()
+        often_prob = predictions[predictions["contract"] == "Often"].iloc[0]["probability"]
+        rare_prob = predictions[predictions["contract"] == "Rare"].iloc[0]["probability"]
+
+        assert often_prob > rare_prob
+        assert rare_prob < 0.5
+
+    def test_min_history_shrinks_sparse_contracts(self):
+        events = pd.DataFrame({
+            "Sparse": [1, np.nan, np.nan, np.nan],
+        })
+
+        model = BetaBinomialModel(min_history=4)
+        model.fit(events)
+
+        prob = model.predict().iloc[0]["probability"]
+        assert prob == pytest.approx(0.5, abs=0.1)
 
     def test_save_and_load(self):
         """Test model persistence."""

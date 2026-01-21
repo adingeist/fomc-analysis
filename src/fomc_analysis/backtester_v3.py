@@ -282,6 +282,8 @@ class TimeHorizonBacktester:
         position_size_pct: float = 0.05,
         fee_rate: float = 0.07,
         min_train_window: int = 5,
+        min_yes_probability: float = 0.0,
+        max_no_probability: float = 1.0,
     ):
         self.outcomes = outcomes.sort_values("meeting_date")
         self.historical_prices = historical_prices
@@ -290,6 +292,8 @@ class TimeHorizonBacktester:
         self.position_size_pct = position_size_pct
         self.fee_rate = fee_rate
         self.min_train_window = min_train_window
+        self.min_yes_probability = min_yes_probability
+        self.max_no_probability = max_no_probability
 
     def run(
         self,
@@ -417,9 +421,13 @@ class TimeHorizonBacktester:
                     if edge is not None and abs(edge) >= self.edge_threshold:
                         # Determine trade direction
                         if edge > 0:
+                            if predicted_prob < self.min_yes_probability:
+                                continue
                             side = "YES"
                             entry_price = market_price
                         else:
+                            if predicted_prob > self.max_no_probability:
+                                continue
                             side = "NO"
                             entry_price = 1 - market_price
 
@@ -487,6 +495,8 @@ class TimeHorizonBacktester:
                 "edge_threshold": self.edge_threshold,
                 "position_size_pct": self.position_size_pct,
                 "fee_rate": self.fee_rate,
+                "min_yes_probability": self.min_yes_probability,
+                "max_no_probability": self.max_no_probability,
             },
         )
 

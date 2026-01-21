@@ -248,17 +248,51 @@ class BetaBinomialModel(BaseModel):
         alpha_prior: float = 1.0,
         beta_prior: float = 1.0,
         half_life: Optional[int] = None,
+        prior_strength: float = 0.0,
+        min_history: int = 0,
     ):
         self.alpha_prior = alpha_prior
         self.beta_prior = beta_prior
         self.half_life = half_life
+        self.prior_strength = prior_strength
+        self.min_history = min_history
         self.fitted = False
 
     def fit(self, events: pd.DataFrame) -> None:
         """Fit Beta-Binomial model."""
         self.events = events.copy()
         self.contracts = list(events.columns)
+        self._compute_base_rates()
         self.fitted = True
+
+    def _compute_base_rates(self) -> None:
+        self.contract_base_rates: Dict[str, Dict[str, float]] = {}
+
+        total_successes = 0.0
+        total_trials = 0.0
+        for contract in self.contracts:
+            series = self.events[contract].to_numpy(dtype=float)
+            valid_mask = np.isfinite(series)
+            if valid_mask.any():
+                values = series[valid_mask]
+                successes = float(values.sum())
+                trials = float(len(values))
+                base_rate = successes / trials if trials else None
+                self.contract_base_rates[contract] = {
+                    "base_rate": base_rate if trials else None,
+                    "observations": trials,
+                }
+                total_successes += successes
+                total_trials += trials
+            else:
+                self.contract_base_rates[contract] = {
+                    "base_rate": None,
+                    "observations": 0.0,
+                }
+
+        self.global_base_rate = (
+            total_successes / total_trials if total_trials > 0 else 0.5
+        )
 
     def predict(self, n_future: int = 1, credible_mass: float = 0.9) -> pd.DataFrame:
         """
@@ -284,23 +318,42 @@ class BetaBinomialModel(BaseModel):
         for contract in self.contracts:
             series = self.events[contract].to_numpy(dtype=float)
 
+            base_stats = self.contract_base_rates.get(contract, {})
+            contract_base_rate = base_stats.get("base_rate")
+            observations = base_stats.get("observations", 0.0) or 0.0
+
+            if contract_base_rate is None:
+                contract_base_rate = self.global_base_rate
+
+            alpha_prior = self.alpha_prior
+            beta_prior = self.beta_prior
+            if self.prior_strength > 0 and contract_base_rate is not None:
+                alpha_prior += contract_base_rate * self.prior_strength
+                beta_prior += (1 - contract_base_rate) * self.prior_strength
+
             # Ignore meetings where the contract did not exist (NaN entries)
             valid_mask = np.isfinite(series)
-            if valid_mask.any():
+            valid_count = int(valid_mask.sum())
+            if valid_count > 0:
                 valid_series = series[valid_mask]
                 valid_weights = weights[valid_mask]
 
                 # Compute weighted successes and trials using only observed data
                 successes = float(np.sum(valid_series * valid_weights))
                 trials = float(np.sum(valid_weights))
+
+                if self.min_history and valid_count < self.min_history:
+                    shrink = valid_count / self.min_history
+                    successes *= shrink
+                    trials *= shrink
             else:
                 # No historical observations; fall back to the prior
                 successes = 0.0
                 trials = 0.0
 
             # Posterior parameters
-            alpha_post = self.alpha_prior + successes
-            beta_post = self.beta_prior + (trials - successes)
+            alpha_post = alpha_prior + successes
+            beta_post = beta_prior + (trials - successes)
 
             # Mean of Beta distribution
             prob = alpha_post / (alpha_post + beta_post)
@@ -338,6 +391,8 @@ class BetaBinomialModel(BaseModel):
             "alpha_prior": self.alpha_prior,
             "beta_prior": self.beta_prior,
             "half_life": self.half_life,
+            "prior_strength": self.prior_strength,
+            "min_history": self.min_history,
             "contracts": self.contracts,
             "events": self.events.to_dict(orient="list"),
         }
@@ -352,8 +407,11 @@ class BetaBinomialModel(BaseModel):
             alpha_prior=data["alpha_prior"],
             beta_prior=data["beta_prior"],
             half_life=data.get("half_life"),
+            prior_strength=data.get("prior_strength", 0.0),
+            min_history=data.get("min_history", 0),
         )
         model.events = pd.DataFrame(data["events"])
         model.contracts = data["contracts"]
+        model._compute_base_rates()
         model.fitted = True
         return model

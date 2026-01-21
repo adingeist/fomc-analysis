@@ -1100,6 +1100,18 @@ def export_kalshi_contracts(
     help="Half-life for exponential decay (Beta-Binomial only).",
 )
 @click.option(
+    "--prior-strength",
+    type=float,
+    default=0.0,
+    help="Additional pseudo-counts derived from historical base rates.",
+)
+@click.option(
+    "--min-history",
+    type=int,
+    default=0,
+    help="Minimum number of observed meetings before using full weight.",
+)
+@click.option(
     "--horizons",
     type=str,
     default="7,14,30",
@@ -1110,6 +1122,18 @@ def export_kalshi_contracts(
     type=float,
     default=0.10,
     help="Minimum edge to trade (default: 0.10 = 10%).",
+)
+@click.option(
+    "--min-yes-prob",
+    type=float,
+    default=0.0,
+    help="Only take YES trades when model probability exceeds this value.",
+)
+@click.option(
+    "--max-no-prob",
+    type=float,
+    default=1.0,
+    help="Only take NO trades when model probability is below this value.",
 )
 @click.option(
     "--position-size-pct",
@@ -1136,10 +1160,14 @@ def backtest_v3(
     alpha: float,
     beta_prior: float,
     half_life: int,
+    prior_strength: float,
+    min_history: int,
     horizons: str,
     edge_threshold: float,
     position_size_pct: float,
     initial_capital: float,
+    min_yes_prob: float,
+    max_no_prob: float,
     output: Path,
 ):
     """
@@ -1229,6 +1257,8 @@ def backtest_v3(
             horizons=horizon_list,
             edge_threshold=edge_threshold,
             position_size_pct=position_size_pct,
+            min_yes_probability=min_yes_prob,
+            max_no_probability=max_no_prob,
         )
 
         # Select model
@@ -1243,6 +1273,8 @@ def backtest_v3(
                 "alpha_prior": alpha,
                 "beta_prior": beta_prior,
                 "half_life": half_life,
+                "prior_strength": prior_strength,
+                "min_history": min_history,
             }
 
         # Run backtest
@@ -1321,6 +1353,18 @@ def backtest_v3(
     help="Half-life for exponential decay weighting.",
 )
 @click.option(
+    "--prior-strength",
+    type=float,
+    default=0.0,
+    help="Pseudo-count strength for contract base rates.",
+)
+@click.option(
+    "--min-history",
+    type=int,
+    default=0,
+    help="Minimum observed meetings before full weight is applied.",
+)
+@click.option(
     "--output",
     type=click.Path(path_type=Path),
     default=Path("results/upcoming_predictions"),
@@ -1331,6 +1375,8 @@ def predict_upcoming(
     alpha: float,
     beta_prior: float,
     half_life: int,
+    prior_strength: float,
+    min_history: int,
     output: Path,
 ):
     """Train on resolved meetings and score open Kalshi mention markets."""
@@ -1357,6 +1403,8 @@ def predict_upcoming(
         "alpha_prior": alpha,
         "beta_prior": beta_prior,
         "half_life": half_life,
+        "prior_strength": prior_strength,
+        "min_history": min_history,
     }
 
     try:

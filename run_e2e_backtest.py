@@ -109,7 +109,7 @@ def parse_transcripts() -> bool:
     )
 
 
-def analyze_kalshi_contracts(series_ticker: str) -> bool:
+def analyze_kalshi_contracts(series_ticker: str, market_status: str) -> bool:
     """Analyze Kalshi contracts and generate contract words."""
     return run_command(
         [
@@ -119,7 +119,7 @@ def analyze_kalshi_contracts(series_ticker: str) -> bool:
             "--segments-dir", "data/segments",
             "--output-dir", "data/kalshi_analysis",
             "--scope", "powell_only",
-            "--market-status", "resolved",
+            "--market-status", market_status,
         ],
         "STEP 3: Analyzing Kalshi Contracts"
     )
@@ -133,6 +133,10 @@ def run_backtest(
     alpha: float,
     beta_prior: float,
     half_life: int,
+    prior_strength: float,
+    min_history: int,
+    min_yes_prob: float,
+    max_no_prob: float,
 ) -> bool:
     """Run backtest v3."""
     return run_command(
@@ -145,9 +149,13 @@ def run_backtest(
             "--alpha", str(alpha),
             "--beta-prior", str(beta_prior),
             "--half-life", str(half_life),
+            "--prior-strength", str(prior_strength),
+            "--min-history", str(min_history),
             "--horizons", horizons,
             "--edge-threshold", str(edge_threshold),
             "--position-size-pct", str(position_size),
+            "--min-yes-prob", str(min_yes_prob),
+            "--max-no-prob", str(max_no_prob),
             "--initial-capital", str(initial_capital),
             "--output", "results/backtest_v3",
         ],
@@ -159,6 +167,8 @@ def run_upcoming_predictions(
     alpha: float,
     beta_prior: float,
     half_life: int,
+    prior_strength: float,
+    min_history: int,
     output_dir: Path,
 ) -> bool:
     """Generate live predictions for unresolved contracts."""
@@ -170,6 +180,8 @@ def run_upcoming_predictions(
             "--alpha", str(alpha),
             "--beta-prior", str(beta_prior),
             "--half-life", str(half_life),
+            "--prior-strength", str(prior_strength),
+            "--min-history", str(min_history),
             "--output", str(output_dir),
         ],
         "STEP 5: Generating Upcoming Predictions",
@@ -427,6 +439,12 @@ def main():
         help="Kalshi series ticker (default: KXFEDMENTION)"
     )
     parser.add_argument(
+        "--market-status",
+        type=str,
+        default="all",
+        help="Kalshi market status filter for analysis (default: all)"
+    )
+    parser.add_argument(
         "--edge-threshold",
         type=float,
         default=0.10,
@@ -469,6 +487,30 @@ def main():
         help="Half-life for exponential decay (default: 4 meetings)"
     )
     parser.add_argument(
+        "--model-prior-strength",
+        type=float,
+        default=4.0,
+        help="Strength of contract-level pseudo-counts (default: 4.0)"
+    )
+    parser.add_argument(
+        "--model-min-history",
+        type=int,
+        default=5,
+        help="Minimum observed meetings before using full weight (default: 5)"
+    )
+    parser.add_argument(
+        "--min-yes-prob",
+        type=float,
+        default=0.65,
+        help="Only place YES trades when model probability exceeds this value (default: 0.65)"
+    )
+    parser.add_argument(
+        "--max-no-prob",
+        type=float,
+        default=0.35,
+        help="Only place NO trades when model probability is below this value (default: 0.35)"
+    )
+    parser.add_argument(
         "--skip-fetch",
         action="store_true",
         help="Skip transcript fetch (use existing data)"
@@ -504,6 +546,7 @@ def main():
 Configuration:
   Years:            {args.start_year} - {args.end_year}
   Series:           {args.series_ticker}
+  Market Status:    {args.market_status}
   Edge Threshold:   {args.edge_threshold * 100:.0f}%
   Position Size:    {args.position_size * 100:.0f}%
   Initial Capital:  ${args.initial_capital:,.2f}
@@ -511,6 +554,10 @@ Configuration:
   Beta Alpha:       {args.model_alpha}
   Beta Beta:        {args.beta_prior}
   Half-life:        {args.half_life} meetings
+  Prior Strength:   {args.model_prior_strength}
+  Min History:      {args.model_min_history}
+  YES Threshold:    {args.min_yes_prob}
+  NO Threshold:     {args.max_no_prob}
   Clean Data:       {args.clean}
 """)
 
@@ -536,7 +583,7 @@ Configuration:
 
     # Step 3: Analyze Kalshi contracts
     if not args.skip_analyze:
-        if not analyze_kalshi_contracts(args.series_ticker):
+        if not analyze_kalshi_contracts(args.series_ticker, args.market_status):
             print("\n✗ Pipeline failed at Kalshi analysis")
             return 1
     else:
@@ -551,6 +598,10 @@ Configuration:
         args.model_alpha,
         args.beta_prior,
         args.half_life,
+        args.model_prior_strength,
+        args.model_min_history,
+        args.min_yes_prob,
+        args.max_no_prob,
     ):
         print("\n✗ Pipeline failed at backtest")
         return 1
@@ -564,6 +615,8 @@ Configuration:
             args.model_alpha,
             args.beta_prior,
             args.half_life,
+            args.model_prior_strength,
+            args.model_min_history,
             prediction_output,
         ):
             print("\n✗ Pipeline failed at upcoming predictions")
