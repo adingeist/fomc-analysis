@@ -2,11 +2,12 @@
 Fetch FOMC press conference transcript PDFs from the Federal Reserve website.
 
 Strategy:
-- Scrape https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm
-  and collect all meeting pages whose URL contains "fomcpresconfYYYYMMDD.htm".
-- Extract the date from each meeting page URL.
+- For recent years (2021+): Scrape https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+- For historical years (≤2020): Scrape https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm
+- Collect all meeting pages whose URL contains "fomcpresconfYYYYMMDD.htm"
+- Extract the date from each meeting page URL
 - Construct PDF URL directly: https://www.federalreserve.gov/mediacenter/files/FOMCpresconfYYYYMMDD.pdf
-- Write an index CSV: date, meeting_page_url, pdf_url, local_path.
+- Write an index CSV: date, meeting_page_url, pdf_url, local_path
 """
 
 from __future__ import annotations
@@ -27,6 +28,10 @@ FED_BASE = "https://www.federalreserve.gov"
 YEAR_PAGE_TMPL = (
     "https://www.federalreserve.gov/monetarypolicy/fomchistorical{year}.htm"
 )
+CURRENT_CALENDAR_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+
+# Years 2021+ are on the current calendar page, not separate historical pages
+HISTORICAL_CUTOFF_YEAR = 2020
 
 UA = "powell-transcript-fetcher/1.0 (+https://www.federalreserve.gov)"
 
@@ -47,18 +52,49 @@ def http_get(url: str, timeout: int = 30) -> requests.Response:
     return resp
 
 
-def parse_year_for_meeting_pages(year: int) -> list[str]:
-    """Return all press-conference meeting page URLs for a given year."""
-    url = YEAR_PAGE_TMPL.format(year=year)
-    html = http_get(url).text
+def parse_current_calendar_for_meeting_pages(years_needed: set[int]) -> dict[int, list[str]]:
+    """
+    Parse the current FOMC calendar page and return meeting pages by year.
+    Used for recent years (2021+) that don't have separate historical pages.
+    """
+    html = http_get(CURRENT_CALENDAR_URL).text
     soup = BeautifulSoup(html, "html.parser")
 
-    meeting_pages: set[str] = set()
+    # Group meeting pages by year
+    pages_by_year: dict[int, set[str]] = {y: set() for y in years_needed}
+
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if "fomcpresconf" in href.lower() and href.lower().endswith(".htm"):
-            meeting_pages.add(urljoin(FED_BASE, href))
-    return sorted(meeting_pages)
+            full_url = urljoin(FED_BASE, href)
+            # Extract year from URL (e.g., fomcpresconf20250129.htm -> 2025)
+            date = extract_date_from_meeting_url(full_url)
+            if date and len(date) == 8:
+                year = int(date[:4])
+                if year in pages_by_year:
+                    pages_by_year[year].add(full_url)
+
+    return {y: sorted(pages) for y, pages in pages_by_year.items()}
+
+
+def parse_year_for_meeting_pages(year: int) -> list[str]:
+    """Return all press-conference meeting page URLs for a given year."""
+    if year > HISTORICAL_CUTOFF_YEAR:
+        # Recent years are on the current calendar page
+        all_pages = parse_current_calendar_for_meeting_pages({year})
+        return all_pages.get(year, [])
+    else:
+        # Older years have dedicated historical pages
+        url = YEAR_PAGE_TMPL.format(year=year)
+        html = http_get(url).text
+        soup = BeautifulSoup(html, "html.parser")
+
+        meeting_pages: set[str] = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "fomcpresconf" in href.lower() and href.lower().endswith(".htm"):
+                meeting_pages.add(urljoin(FED_BASE, href))
+        return sorted(meeting_pages)
 
 
 def extract_date_from_meeting_url(meeting_page_url: str) -> Optional[str]:
@@ -138,8 +174,32 @@ def fetch_transcripts(
     # Collect meeting pages
     all_items: list[PressConfItem] = []
 
-    # Slight politeness: optional sleep between year fetches
-    for y in years:
+    # Separate recent years from historical years for efficiency
+    recent_years = [y for y in years if y > HISTORICAL_CUTOFF_YEAR]
+    historical_years = [y for y in years if y <= HISTORICAL_CUTOFF_YEAR]
+
+    # Fetch recent years from current calendar (single request for all)
+    if recent_years:
+        print(f"  - fetching current calendar for years {min(recent_years)}-{max(recent_years)}")
+        try:
+            pages_by_year = parse_current_calendar_for_meeting_pages(set(recent_years))
+            for y in recent_years:
+                meeting_pages = pages_by_year.get(y, [])
+                print(f"    year {y}: {len(meeting_pages)} meetings")
+                for mp in meeting_pages:
+                    date = extract_date_from_meeting_url(mp)
+                    if not date:
+                        continue
+                    try:
+                        pdf = construct_pressconf_pdf_url(date)
+                        all_items.append(PressConfItem(date, mp, pdf))
+                    except Exception as e:
+                        print(f"    ! failed {mp}: {e}")
+        except Exception as e:
+            print(f"    ! failed to parse current calendar: {e}")
+
+    # Fetch historical years (separate request per year)
+    for y in historical_years:
         print(f"  - year {y}")
         try:
             meeting_pages = parse_year_for_meeting_pages(y)
