@@ -216,3 +216,30 @@ def test_fetch_contracts_merges_thresholds():
         entry["ticker"] == "T2" and entry["threshold"] == 5 and entry["close_date"] == "2026-01-01"
         for entry in unc_thresh.markets
     )
+
+
+def test_fetch_contracts_preserves_resolution_metadata():
+    markets = [
+        {
+            "title": "Layoff mention",
+            "ticker": "LAY-T1",
+            "event_ticker": "ev1",
+            "status": "settled",
+            "result": "yes",
+            "settlement_value": 100,
+            "settlement_value_dollars": "1.0000",
+            "last_price": 45,
+            "last_price_dollars": "0.4500",
+            "close_time": "2025-01-01T00:00:00Z",
+            "expiration_time": "2025-01-01T00:00:00Z",
+        }
+    ]
+    client = DummyKalshiClient(markets)
+    results = fetch_mention_contracts(client, market_status="resolved")
+    assert len(results) == 1
+    record = results[0].markets[0]
+    assert record["status"] == "settled"
+    assert record["result"] == "yes"
+    assert record["close_price"] == 100
+    assert record["settlement_value"] == 100
+    assert record["last_price"] == 45

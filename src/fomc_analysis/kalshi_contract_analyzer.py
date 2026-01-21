@@ -62,6 +62,44 @@ class MentionAnalysis:
         return asdict(self)
 
 
+def _normalize_market_status_filter(
+    market_status: Optional[str],
+) -> tuple[Optional[str], Optional[str], Set[str]]:
+    """
+    Normalize CLI-provided market status values for API filtering.
+
+    Parameters
+    ----------
+    market_status : Optional[str]
+        Raw status parameter from the CLI/arguments.
+
+    Returns
+    -------
+    tuple
+        normalized_status : Optional[str]
+            Lowercased version of the requested status (for logging).
+        api_status : Optional[str]
+            Value safe to pass to Kalshi's API. Maps "resolved" -> "settled".
+        accepted_statuses : Set[str]
+            Permitted values when filtering returned markets.
+    """
+    if not market_status:
+        return None, None, set()
+
+    normalized = market_status.strip().lower()
+
+    status_aliases = {
+        "resolved": ("settled", {"resolved", "settled"}),
+        "settled": ("settled", {"resolved", "settled"}),
+        "open": ("open", {"open"}),
+        "closed": ("closed", {"closed"}),
+        "unopened": ("unopened", {"unopened"}),
+    }
+
+    api_status, accepted = status_aliases.get(normalized, (normalized, {normalized}))
+    return normalized, api_status, accepted
+
+
 def parse_market_title(title: str) -> Optional[str]:
     """
     Extract the tracked word from a Kalshi market title.
@@ -223,6 +261,7 @@ def fetch_mention_contracts(
         List of contract words (without variants yet).
     """
     contracts: Dict[str, ContractWord] = {}
+    normalized_status, api_status, accepted_statuses = _normalize_market_status_filter(market_status)
 
     if event_ticker:
         # Fetch specific event
@@ -232,14 +271,16 @@ def fetch_mention_contracts(
         # Fetch all markets in series
         markets = kalshi_client.get_markets(
             series_ticker=series_ticker,
+            status=api_status,
+            limit=1000,
         )
 
-    if market_status:
-        desired_status = market_status.lower()
-
+    if normalized_status:
         def _status_matches(market: Dict[str, Any]) -> bool:
-            status = str(market.get("status", "")).lower()
-            return status == desired_status
+            status_value = str(market.get("status", "")).lower()
+            if not accepted_statuses:
+                return True
+            return status_value in accepted_statuses
 
         filtered = [m for m in markets if _status_matches(m)]
         if not filtered:
@@ -259,11 +300,22 @@ def fetch_mention_contracts(
 
         threshold_value = threshold if threshold is not None else 1
 
+        settlement_value = market.get("settlement_value")
+        last_price = market.get("last_price")
+        close_price = settlement_value if settlement_value is not None else last_price
+
         market_record = {
             "ticker": ticker,
             "title": title,
             "threshold": threshold_value,
             "event_ticker": market.get("event_ticker"),
+            "status": market.get("status"),
+            "result": market.get("result"),
+            "close_price": close_price,
+            "settlement_value": settlement_value,
+            "settlement_value_dollars": market.get("settlement_value_dollars"),
+            "last_price": last_price,
+            "last_price_dollars": market.get("last_price_dollars"),
             "close_time": market.get("close_time"),
             "expiration_time": market.get("expiration_time"),
             "close_date": None,

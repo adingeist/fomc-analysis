@@ -282,11 +282,21 @@ class BetaBinomialModel(BaseModel):
             weights = np.ones(n_obs)
 
         for contract in self.contracts:
-            series = self.events[contract].values
+            series = self.events[contract].to_numpy(dtype=float)
 
-            # Compute weighted successes and trials
-            successes = np.sum(series * weights)
-            trials = np.sum(weights)
+            # Ignore meetings where the contract did not exist (NaN entries)
+            valid_mask = np.isfinite(series)
+            if valid_mask.any():
+                valid_series = series[valid_mask]
+                valid_weights = weights[valid_mask]
+
+                # Compute weighted successes and trials using only observed data
+                successes = float(np.sum(valid_series * valid_weights))
+                trials = float(np.sum(valid_weights))
+            else:
+                # No historical observations; fall back to the prior
+                successes = 0.0
+                trials = 0.0
 
             # Posterior parameters
             alpha_post = self.alpha_prior + successes

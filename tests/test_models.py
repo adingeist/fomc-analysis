@@ -122,6 +122,26 @@ class TestBetaBinomialModel:
         # With decay, probability should be higher (recent events are 1s)
         assert pred_decay.iloc[0]["probability"] > pred_no_decay.iloc[0]["probability"]
 
+    def test_handles_missing_contract_history(self):
+        """Model should ignore NaNs rather than propagating them."""
+        events = pd.DataFrame({
+            "Contract1": [1, np.nan, 0, np.nan],
+            "Contract2": [np.nan, np.nan, np.nan, np.nan],
+        })
+
+        model = BetaBinomialModel(alpha_prior=1.0, beta_prior=1.0, half_life=2)
+        model.fit(events)
+
+        predictions = model.predict()
+
+        contract1 = predictions[predictions["contract"] == "Contract1"].iloc[0]
+        assert np.isfinite(contract1["probability"])
+        assert 0 <= contract1["probability"] <= 1
+
+        # With no historical data, the model should revert to the prior (0.5 for alpha=beta=1)
+        contract2 = predictions[predictions["contract"] == "Contract2"].iloc[0]
+        assert contract2["probability"] == pytest.approx(0.5)
+
     def test_save_and_load(self):
         """Test model persistence."""
         events = pd.DataFrame({

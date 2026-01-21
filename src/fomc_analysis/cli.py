@@ -18,6 +18,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import json
 
 import click
 import pandas as pd
@@ -1292,6 +1293,105 @@ def backtest_v3(
     finally:
         if kalshi_client and hasattr(kalshi_client, "close"):
             kalshi_client.close()
+
+
+@cli.command(name="predict-upcoming")
+@click.option(
+    "--contract-words",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to contract_words.json with Kalshi markets.",
+)
+@click.option(
+    "--alpha",
+    type=float,
+    default=1.0,
+    help="Alpha prior for Beta-Binomial model.",
+)
+@click.option(
+    "--beta-prior",
+    type=float,
+    default=1.0,
+    help="Beta prior parameter for Beta-Binomial model.",
+)
+@click.option(
+    "--half-life",
+    type=int,
+    default=4,
+    help="Half-life for exponential decay weighting.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("results/upcoming_predictions"),
+    help="Directory to write prediction artifacts.",
+)
+def predict_upcoming(
+    contract_words: Path,
+    alpha: float,
+    beta_prior: float,
+    half_life: int,
+    output: Path,
+):
+    """Train on resolved meetings and score open Kalshi mention markets."""
+
+    click.echo("Generating upcoming contract predictions\n" + "=" * 60)
+
+    try:
+        contract_data = json.loads(contract_words.read_text())
+    except json.JSONDecodeError as exc:  # pragma: no cover - user input
+        raise click.ClickException(f"Invalid contract words JSON: {exc}") from exc
+
+    if not isinstance(contract_data, list):  # pragma: no cover - sanity guard
+        raise click.ClickException("contract_words file must be a list of entries")
+
+    click.echo(f"Loaded {len(contract_data)} contract definitions")
+
+    from .models import BetaBinomialModel
+    from .predictor import (
+        generate_upcoming_predictions,
+        save_predictions_to_disk,
+    )
+
+    model_params = {
+        "alpha_prior": alpha,
+        "beta_prior": beta_prior,
+        "half_life": half_life,
+    }
+
+    try:
+        result = generate_upcoming_predictions(
+            contract_data,
+            model_class=BetaBinomialModel,
+            model_params=model_params,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    predictions = result.get("predictions", [])
+    click.echo(f"Generated {len(predictions)} predictions")
+
+    skipped = result.get("metadata", {}).get("skipped_contracts", [])
+    if skipped:
+        click.echo(f"Skipped {len(skipped)} contracts lacking resolved history")
+
+    save_predictions_to_disk(result, output)
+    click.echo(f"Saved predictions to {output}")
+
+    if predictions:
+        click.echo("\nTop opportunities (by edge):")
+        for entry in predictions[:5]:
+            edge_pct = (
+                f"{entry['edge'] * 100:.1f}%" if entry.get("edge") is not None else "n/a"
+            )
+            price_display = (
+                f"{entry['market_price']:.2f}" if entry.get("market_price") is not None else "n/a"
+            )
+            click.echo(
+                f"  {entry['meeting_date']} | {entry['contract']} | P(model)="
+                f"{entry['predicted_probability']:.1%} | Price={price_display} | Edge={edge_pct}"
+            )
+
 
 
 if __name__ == "__main__":

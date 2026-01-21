@@ -25,6 +25,9 @@ from typing import List, Optional, Dict, Tuple
 import numpy as np
 import pandas as pd
 
+RESOLVED_MARKET_STATUSES = {"resolved", "settled"}
+RESOLVED_RESULTS = {"yes", "no"}
+
 
 @dataclass
 class PredictionSnapshot:
@@ -119,10 +122,17 @@ def fetch_kalshi_contract_outcomes(
 
         for market in contract_def.get("markets", []):
             ticker = market.get("ticker")
-            status = market.get("status", "")
+            status = str(market.get("status", "")).lower()
 
             # Only process resolved markets
-            if status != "resolved":
+            is_resolved = status in RESOLVED_MARKET_STATUSES
+
+            result_value = str(market.get("result", "")).lower()
+            if not is_resolved and result_value in RESOLVED_RESULTS:
+                # Legacy files might omit status but still contain result.
+                is_resolved = True
+
+            if not is_resolved:
                 continue
 
             # Get the meeting date (expiration/close date)
@@ -136,10 +146,9 @@ def fetch_kalshi_contract_outcomes(
                 continue
 
             # Get the outcome
-            result = market.get("result", "")
-            if result == "yes":
+            if result_value == "yes":
                 outcome = 1
-            elif result == "no":
+            elif result_value == "no":
                 outcome = 0
             else:
                 continue  # Skip unresolved or invalid outcomes
@@ -551,17 +560,20 @@ class TimeHorizonBacktester:
         final_capital: float,
     ) -> Dict[str, float]:
         """Compute overall backtest metrics."""
-        if not trades:
-            return {
-                "total_trades": 0,
-                "total_pnl": 0.0,
-                "roi": 0.0,
-                "win_rate": 0.0,
-                "sharpe": 0.0,
-                "avg_pnl_per_trade": 0.0,
-            }
+        base_metrics = {
+            "total_trades": len(trades),
+            "total_pnl": 0.0,
+            "roi": float((final_capital - initial_capital) / initial_capital) if initial_capital else 0.0,
+            "win_rate": 0.0,
+            "sharpe": 0.0,
+            "avg_pnl_per_trade": 0.0,
+            "final_capital": float(final_capital),
+        }
 
-        total_pnl = sum(t.pnl for t in trades)
+        if not trades:
+            return base_metrics
+
+        total_pnl = float(sum(t.pnl for t in trades))
         wins = len([t for t in trades if t.pnl > 0])
         win_rate = wins / len(trades)
 
@@ -569,15 +581,17 @@ class TimeHorizonBacktester:
         returns = [t.roi for t in trades]
         sharpe = np.mean(returns) / np.std(returns) * np.sqrt(len(returns)) if np.std(returns) > 0 else 0
 
-        return {
-            "total_trades": len(trades),
-            "total_pnl": float(total_pnl),
-            "roi": float((final_capital - initial_capital) / initial_capital),
-            "win_rate": float(win_rate),
-            "sharpe": float(sharpe),
-            "avg_pnl_per_trade": float(total_pnl / len(trades)),
-            "final_capital": float(final_capital),
-        }
+        base_metrics.update(
+            {
+                "total_trades": len(trades),
+                "total_pnl": total_pnl,
+                "roi": float((final_capital - initial_capital) / initial_capital) if initial_capital else 0.0,
+                "win_rate": float(win_rate),
+                "sharpe": float(sharpe),
+                "avg_pnl_per_trade": float(total_pnl / len(trades)),
+            }
+        )
+        return base_metrics
 
 
 def save_backtest_result_v3(result: BacktestResult, output_dir: Path) -> None:

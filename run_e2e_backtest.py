@@ -130,6 +130,9 @@ def run_backtest(
     position_size: float,
     initial_capital: float,
     horizons: str,
+    alpha: float,
+    beta_prior: float,
+    half_life: int,
 ) -> bool:
     """Run backtest v3."""
     return run_command(
@@ -139,9 +142,9 @@ def run_backtest(
             "--contract-words", "data/kalshi_analysis/contract_words.json",
             "--segments-dir", "data/segments",
             "--model", "beta",
-            "--alpha", "1.0",
-            "--beta-prior", "1.0",
-            "--half-life", "4",
+            "--alpha", str(alpha),
+            "--beta-prior", str(beta_prior),
+            "--half-life", str(half_life),
             "--horizons", horizons,
             "--edge-threshold", str(edge_threshold),
             "--position-size-pct", str(position_size),
@@ -149,6 +152,27 @@ def run_backtest(
             "--output", "results/backtest_v3",
         ],
         "STEP 4: Running Backtest v3"
+    )
+
+
+def run_upcoming_predictions(
+    alpha: float,
+    beta_prior: float,
+    half_life: int,
+    output_dir: Path,
+) -> bool:
+    """Generate live predictions for unresolved contracts."""
+    return run_command(
+        [
+            "fomc-analysis",
+            "predict-upcoming",
+            "--contract-words", "data/kalshi_analysis/contract_words.json",
+            "--alpha", str(alpha),
+            "--beta-prior", str(beta_prior),
+            "--half-life", str(half_life),
+            "--output", str(output_dir),
+        ],
+        "STEP 5: Generating Upcoming Predictions",
     )
 
 
@@ -427,6 +451,24 @@ def main():
         help="Prediction horizons in days (default: 7,14,30)"
     )
     parser.add_argument(
+        "--model-alpha",
+        type=float,
+        default=1.0,
+        help="Alpha prior for the Beta-Binomial model (default: 1.0)"
+    )
+    parser.add_argument(
+        "--beta-prior",
+        type=float,
+        default=1.0,
+        help="Beta prior parameter for the Beta-Binomial model (default: 1.0)"
+    )
+    parser.add_argument(
+        "--half-life",
+        type=int,
+        default=4,
+        help="Half-life for exponential decay (default: 4 meetings)"
+    )
+    parser.add_argument(
         "--skip-fetch",
         action="store_true",
         help="Skip transcript fetch (use existing data)"
@@ -440,6 +482,17 @@ def main():
         "--skip-analyze",
         action="store_true",
         help="Skip Kalshi analysis (use existing contract_words.json)"
+    )
+    parser.add_argument(
+        "--skip-predict",
+        action="store_true",
+        help="Skip generating upcoming predictions"
+    )
+    parser.add_argument(
+        "--prediction-output",
+        type=Path,
+        default=Path("results/upcoming_predictions"),
+        help="Directory to store upcoming predictions (default: results/upcoming_predictions)"
     )
 
     args = parser.parse_args()
@@ -455,6 +508,9 @@ Configuration:
   Position Size:    {args.position_size * 100:.0f}%
   Initial Capital:  ${args.initial_capital:,.2f}
   Horizons:         {args.horizons} days
+  Beta Alpha:       {args.model_alpha}
+  Beta Beta:        {args.beta_prior}
+  Half-life:        {args.half_life} meetings
   Clean Data:       {args.clean}
 """)
 
@@ -492,11 +548,28 @@ Configuration:
         args.position_size,
         args.initial_capital,
         args.horizons,
+        args.model_alpha,
+        args.beta_prior,
+        args.half_life,
     ):
         print("\n✗ Pipeline failed at backtest")
         return 1
 
-    # Step 5: Generate visualizations
+    # Step 5: Generate upcoming predictions
+    if args.skip_predict:
+        print("\n→ Skipping upcoming predictions (--skip-predict)")
+    else:
+        prediction_output = args.prediction_output
+        if not run_upcoming_predictions(
+            args.model_alpha,
+            args.beta_prior,
+            args.half_life,
+            prediction_output,
+        ):
+            print("\n✗ Pipeline failed at upcoming predictions")
+            return 1
+
+    # Step 6: Generate visualizations
     try:
         results_dir = Path("results/backtest_v3")
         results = load_backtest_results(results_dir)
