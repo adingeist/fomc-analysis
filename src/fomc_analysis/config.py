@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     1. Environment variables
     2. .env file in the project root (if present)
 
-    All settings are optional by default, but you should provide
-    KALSHI_API_KEY and KALSHI_API_SECRET if you plan to use the
-    Kalshi API client.
+    All settings are optional by default, but you should provide:
+    - OPENAI_API_KEY if you plan to use OpenAI GPT models
+    - KALSHI_API_KEY and KALSHI_API_SECRET if you plan to use the Kalshi API client
     """
 
     model_config = SettingsConfigDict(
@@ -48,6 +48,13 @@ class Settings(BaseSettings):
         default="https://trading-api.kalshi.com/trade-api/v2",
         description="Base URL for the Kalshi API",
         alias="KALSHI_BASE_URL",
+    )
+
+    # OpenAI API credentials
+    openai_api_key: str | None = Field(
+        default=None,
+        description="OpenAI API key for GPT models",
+        alias="OPENAI_API_KEY",
     )
 
 

@@ -13,15 +13,14 @@ This module provides all required CLI commands:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Optional
 
 import click
 import pandas as pd
-from dotenv import load_dotenv
 from openai import OpenAI
 
+from .config import settings
 from .parsing.pdf_extractor import extract_pdf_to_text, clean_text
 from .parsing.speaker_segmenter import (
     segment_speakers,
@@ -37,10 +36,6 @@ from .featurizer import (
 from .models import EWMAModel, BetaBinomialModel
 from .backtester_v2 import WalkForwardBacktester, save_backtest_result
 from .fetcher import fetch_transcripts as fetch_transcripts_impl
-
-
-# Load environment variables
-load_dotenv()
 
 
 @click.group()
@@ -145,7 +140,7 @@ def parse(
     # Initialize OpenAI client if using AI mode
     openai_client = None
     if mode == "ai":
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = settings.openai_api_key
         if not api_key:
             click.echo("Error: OPENAI_API_KEY not found in environment")
             return
@@ -210,7 +205,7 @@ def build_variants(contracts: Path, output_dir: Path, force: bool):
     import yaml
 
     # Load OpenAI client
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = settings.openai_api_key
     if not api_key:
         click.echo("Error: OPENAI_API_KEY not found in environment")
         return
