@@ -649,5 +649,93 @@ def report(results: Path, output: Path):
     click.echo(report_df.head(10).to_string(index=False))
 
 
+@cli.command()
+@click.option(
+    "--series-ticker",
+    type=str,
+    default="KXFEDMENTION",
+    help="Kalshi series ticker (e.g., KXFEDMENTION).",
+)
+@click.option(
+    "--event-ticker",
+    type=str,
+    default=None,
+    help="Specific event ticker (e.g., kxfedmention-26jan). If not provided, fetches all markets in series.",
+)
+@click.option(
+    "--segments-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=Path("data/segments"),
+    help="Directory containing segmented transcripts.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=Path("data/kalshi_analysis"),
+    help="Output directory for analysis results.",
+)
+@click.option(
+    "--scope",
+    type=click.Choice(["powell_only", "full_transcript"]),
+    default="powell_only",
+    help="Search scope: powell_only or full_transcript.",
+)
+def analyze_kalshi_contracts(
+    series_ticker: str,
+    event_ticker: Optional[str],
+    segments_dir: Path,
+    output_dir: Path,
+    scope: str,
+):
+    """
+    Analyze Kalshi mention contracts against historical FOMC transcripts.
+
+    This command:
+    1. Fetches mention contracts from Kalshi API (e.g., KXFEDMENTION series)
+    2. Extracts tracked words from market titles
+    3. Generates word variants using OpenAI (plurals, possessives, compounds)
+    4. Scans all FOMC transcripts for matches
+    5. Builds statistical analysis of historical mention frequencies
+
+    Requires KALSHI_API_KEY, KALSHI_API_SECRET, and OPENAI_API_KEY in environment.
+    """
+    from .kalshi_api import KalshiClient
+    from .kalshi_contract_analyzer import run_kalshi_analysis
+
+    # Load API clients
+    click.echo("Loading API clients...")
+
+    # Kalshi client
+    try:
+        kalshi_client = KalshiClient()
+    except ValueError as e:
+        click.echo(f"Error: {e}")
+        click.echo("Please set KALSHI_API_KEY and KALSHI_API_SECRET in environment or .env file")
+        return
+
+    # OpenAI client
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        click.echo("Error: OPENAI_API_KEY not found in environment")
+        return
+
+    openai_client = OpenAI(api_key=api_key)
+
+    # Run analysis
+    try:
+        run_kalshi_analysis(
+            kalshi_client=kalshi_client,
+            openai_client=openai_client,
+            series_ticker=series_ticker,
+            event_ticker=event_ticker,
+            segments_dir=segments_dir,
+            output_dir=output_dir,
+            scope=scope,
+        )
+    except Exception as e:
+        click.echo(f"Error during analysis: {e}")
+        raise
+
+
 if __name__ == "__main__":
     cli()
