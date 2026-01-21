@@ -1,14 +1,12 @@
 """
 Fetch FOMC press conference transcript PDFs from the Federal Reserve website.
 
-Strategy (robust):
+Strategy:
 - Scrape https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm
   and collect all meeting pages whose URL contains "fomcpresconfYYYYMMDD.htm".
-- For each meeting page, find the "Press Conference Transcript (PDF)" link and download it.
+- Extract the date from each meeting page URL.
+- Construct PDF URL directly: https://www.federalreserve.gov/mediacenter/files/FOMCpresconfYYYYMMDD.pdf
 - Write an index CSV: date, meeting_page_url, pdf_url, local_path.
-
-Why not hardcode https://www.federalreserve.gov/mediacenter/files/FOMCpresconfYYYYMMDD.pdf ?
-Because older years sometimes differ in filename case (e.g. 'fomcpresconf...pdf') and other quirks.
 """
 
 from __future__ import annotations
@@ -68,27 +66,9 @@ def extract_date_from_meeting_url(meeting_page_url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def find_pressconf_pdf(meeting_page_url: str) -> str:
-    """Given a meeting pressconf page, locate the Press Conference Transcript PDF URL."""
-    html = http_get(meeting_page_url).text
-    soup = BeautifulSoup(html, "html.parser")
-
-    # 1) Prefer the exact link text
-    for a in soup.find_all("a", href=True):
-        text = " ".join(a.get_text(" ", strip=True).split()).lower()
-        href = a["href"]
-        if "press conference transcript" in text and href.lower().endswith(".pdf"):
-            return urljoin(FED_BASE, href)
-
-    # 2) Fallback: any PDF link that looks like presconf transcript
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.lower().endswith(".pdf") and "presconf" in href.lower():
-            return urljoin(FED_BASE, href)
-
-    raise RuntimeError(
-        f"Could not find press conference transcript PDF on {meeting_page_url}"
-    )
+def construct_pressconf_pdf_url(date_yyyymmdd: str) -> str:
+    """Construct the Press Conference Transcript PDF URL from the date."""
+    return f"https://www.federalreserve.gov/mediacenter/files/FOMCpresconf{date_yyyymmdd}.pdf"
 
 
 def download_pdf(
@@ -119,7 +99,7 @@ def build_items(years: Iterable[int]) -> list[PressConfItem]:
             date = extract_date_from_meeting_url(mp)
             if not date:
                 continue
-            pdf = find_pressconf_pdf(mp)
+            pdf = construct_pressconf_pdf_url(date)
             items.append(
                 PressConfItem(date_yyyymmdd=date, meeting_page_url=mp, pdf_url=pdf)
             )
@@ -172,7 +152,7 @@ def fetch_transcripts(
             if not date:
                 continue
             try:
-                pdf = find_pressconf_pdf(mp)
+                pdf = construct_pressconf_pdf_url(date)
                 all_items.append(PressConfItem(date, mp, pdf))
             except Exception as e:
                 print(f"    ! failed {mp}: {e}")
