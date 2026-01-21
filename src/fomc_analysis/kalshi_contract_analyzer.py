@@ -207,7 +207,7 @@ def scan_transcript_for_words(
     if scope == "powell_only":
         text_parts = [
             seg["text"] for seg in segments
-            if seg.get("role", "").lower() in ["chair", "chairman"]
+            if seg.get("role", "").lower() == "powell"
         ]
     else:
         text_parts = [seg["text"] for seg in segments]
