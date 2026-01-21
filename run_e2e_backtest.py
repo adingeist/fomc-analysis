@@ -441,6 +441,11 @@ def main():
         action="store_true",
         help="Skip Kalshi analysis (use existing contract_words.json)"
     )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Use demo mode with mock resolved contracts (no real Kalshi outcomes needed)"
+    )
 
     args = parser.parse_args()
 
@@ -456,6 +461,7 @@ Configuration:
   Initial Capital:  ${args.initial_capital:,.2f}
   Horizons:         {args.horizons} days
   Clean Data:       {args.clean}
+  Demo Mode:        {args.demo}
 """)
 
     # Step 0: Clean data if requested
@@ -478,8 +484,41 @@ Configuration:
     else:
         print("\n→ Skipping parse (--skip-parse)")
 
-    # Step 3: Analyze Kalshi contracts
-    if not args.skip_analyze:
+    # Step 3: Analyze Kalshi contracts or create demo data
+    if args.demo:
+        print("\n→ Using demo mode (--demo)")
+        print("\n" + "=" * 80)
+        print("STEP 3: Creating Demo Data")
+        print("=" * 80)
+
+        # Import the create_demo_data module
+        try:
+            import sys
+            sys.path.insert(0, str(Path.cwd()))
+            from create_demo_data import create_demo_contract_words
+
+            segments_dir = Path("data/segments")
+            output_dir = Path("data/kalshi_analysis")
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            print("\nGenerating demo contract words...")
+            contract_words = create_demo_contract_words(segments_dir, num_contracts=10)
+
+            # Save to JSON
+            output_file = output_dir / "contract_words.json"
+            output_file.write_text(json.dumps(contract_words, indent=2))
+
+            total_markets = sum(len(contract["markets"]) for contract in contract_words)
+            print(f"\n✓ Created {len(contract_words)} contracts with {total_markets} resolved markets")
+            print(f"✓ Demo data saved to: {output_file}")
+
+        except Exception as e:
+            print(f"\n✗ Failed to create demo data: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
+
+    elif not args.skip_analyze:
         if not analyze_kalshi_contracts(args.series_ticker):
             print("\n✗ Pipeline failed at Kalshi analysis")
             return 1
