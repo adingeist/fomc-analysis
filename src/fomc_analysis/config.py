@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # Optional: Kalshi API base URL (for testing or custom endpoints)
     kalshi_base_url: str = Field(
-        default="https://trading-api.kalshi.com/trade-api/v2",
+        default="https://api.elections.kalshi.com/trade-api/v2",
         description="Base URL for the Kalshi API",
         alias="KALSHI_BASE_URL",
     )

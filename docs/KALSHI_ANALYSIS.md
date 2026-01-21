@@ -25,13 +25,24 @@ The Kalshi contract analysis pipeline:
 Add the following to your `.env` file:
 
 ```bash
-# Kalshi API (legacy auth)
+# Kalshi API (choose one auth scheme)
+# Option A: Legacy REST credentials
 KALSHI_API_KEY=your_api_key_here
 KALSHI_API_SECRET=your_api_secret_here
 
+# Option B: RSA SDK credentials (recommended)
+KALSHI_API_KEY_ID=your_key_id_here
+KALSHI_PRIVATE_KEY_BASE64=base64_private_key_here
+
 # OpenAI API
 OPENAI_API_KEY=your_openai_key_here
+
+# Optional: override if Kalshi migrates again
+# KALSHI_BASE_URL=https://api.elections.kalshi.com/trade-api/v2
 ```
+
+The CLI automatically detects which Kalshi credential pair is available and
+falls back to the SDK adapter when only the RSA keys are set.
 
 ## Usage
 
@@ -57,7 +68,8 @@ fomc analyze-kalshi-contracts \
   --series-ticker KXFEDMENTION \
   --segments-dir data/segments \
   --output-dir data/kalshi_analysis \
-  --scope powell_only
+  --scope powell_only \
+  --market-status resolved
 ```
 
 #### Options
@@ -67,6 +79,7 @@ fomc analyze-kalshi-contracts \
 - `--segments-dir`: Directory with parsed transcripts (default: `data/segments`)
 - `--output-dir`: Output directory (default: `data/kalshi_analysis`)
 - `--scope`: Search scope - `powell_only` (default) or `full_transcript`
+- `--market-status`: Pass `resolved` to include past markets, `open` to inspect only the currently listed contracts, or omit for Kalshi's default.
 
 ### Step 3: Review Results
 
@@ -320,11 +333,22 @@ fomc parse --input-dir data/raw_pdf --output-dir data/segments
 
 ### "Kalshi API credentials are required"
 
-Set your credentials in `.env`:
+Set one of the supported credential pairs in `.env`:
 
 ```bash
+# Legacy REST
 KALSHI_API_KEY=your_key
 KALSHI_API_SECRET=your_secret
+
+# or SDK auth
+KALSHI_API_KEY_ID=your_key_id
+KALSHI_PRIVATE_KEY_BASE64=base64_private_key
+# Optional base override
+# KALSHI_BASE_URL=https://api.elections.kalshi.com/trade-api/v2
+
+If you see the message `API has been moved to https://api.elections.kalshi.com/`,
+upgrade to the latest toolkit (which already points at the elections host) or set
+`KALSHI_BASE_URL` as shown above.
 ```
 
 ### "OPENAI_API_KEY not found"
@@ -393,3 +417,15 @@ Potential improvements:
 - [Kalshi API Documentation](https://docs.kalshi.com)
 - [Kalshi Fed Mention Markets](https://kalshi.com/markets/kxfedmention)
 - [OpenAI API Documentation](https://platform.openai.com/docs)
+### Step 4: Export Mapping for Featurization
+
+After analyzing, generate a YAML mapping that feeds directly into `fomc featurize`:
+
+```bash
+fomc export-kalshi-contracts \
+  --series-ticker KXFEDMENTION \
+  --market-status resolved \
+  --output configs/generated_contract_mapping.yaml
+```
+
+This file contains every unique contract title, inferred mention threshold, OpenAI variants (if enabled), and a description referencing the Kalshi ticker.

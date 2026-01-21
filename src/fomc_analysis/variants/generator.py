@@ -37,6 +37,8 @@ Contract Resolution Rules:
 - **EXCLUDED**: Grammatical and tense inflections (e.g., "immigrant" does NOT include "immigration")
 - **EXCLUDED**: Synonyms (e.g., "AI" does NOT include "machine learning")
 - **EXCLUDED**: Homophones (different spelling, same sound - do NOT count)
+- **IMPORTANT**: Only mutate the provided base phrases. Never prepend or append unrelated context from the contract title.
+- **IMPORTANT**: Ignore threshold text (e.g., "(5+ times)"). The base phrase already excludes these counts.
 
 Your task:
 Given a contract name and base phrases, generate a comprehensive list of variants that would count as mentions according to the rules above.
@@ -192,6 +194,7 @@ def generate_variants(
     cache_dir: Path = Path("data/variants"),
     model: str = "gpt-4o-mini",
     force_regenerate: bool = False,
+    extra_metadata: Optional[dict] = None,
 ) -> VariantResult:
     """
     Generate phrase variants with caching.
@@ -245,14 +248,18 @@ def generate_variants(
         variants = sorted(set(p.lower() for p in base_phrases))
 
     # Create result
+    metadata = {
+        "model": model,
+        "prompt_version": PROMPT_VERSION,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
     result = VariantResult(
         contract=contract,
         base_phrases=sorted(set(p.lower() for p in base_phrases)),
         variants=variants,
-        metadata={
-            "model": model,
-            "prompt_version": PROMPT_VERSION,
-        },
+        metadata=metadata,
         cache_key=cache_key,
         generated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     )

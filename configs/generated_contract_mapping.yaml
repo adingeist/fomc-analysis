@@ -1,0 +1,1075 @@
+ADP:
+  synonyms:
+  - adp
+  - adp technology
+  - adp's
+  - adp-powered
+  - adps
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say ADP at his Jan 2026
+    press conference?' (KXFEDMENTION-26JAN-ADP)
+AI / Artificial Intelligence:
+  synonyms:
+  - ai
+  - ai / artificial intelligence
+  - ai technology
+  - ai's
+  - ai-powered
+  - ais
+  - artificial intelligence
+  - artificial intelligence's
+  - artificial intelligences
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say AI / Artificial
+    Intelligence at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-AI)
+Anchor:
+  synonyms:
+  - anchor
+  - anchor text
+  - anchor's
+  - anchor-based
+  - anchor-point
+  - anchors
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Anchor at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-ANCH)
+Balance of Risk:
+  synonyms:
+  - balance of risk
+  - balance of risk's
+  - balance of risks
+  - balance of-risk
+  - balance's of risk
+  - balance-of-risk
+  - balances of risk
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Balance of Risk
+    at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-BALAR)
+Balance Sheet:
+  synonyms:
+  - balance sheet
+  - balance sheet's
+  - balance sheets
+  - balance-sheet
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Balance Sheet at
+    his Jan 2026 press conference?' (KXFEDMENTION-26JAN-BALA)
+Beige Book:
+  synonyms:
+  - beige book
+  - beige book's
+  - beige books
+  - beige-book
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Beige Book at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-BEIG)
+Bitcoin:
+  synonyms:
+  - bitcoin
+  - bitcoin mining
+  - bitcoin technology
+  - bitcoin wallet
+  - bitcoin's
+  - bitcoin-based
+  - bitcoins
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Bitcoin at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-BITC)
+China:
+  synonyms:
+  - china
+  - china's
+  - chinas
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say China at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-CHIN)
+Confidence:
+  synonyms:
+  - confidence
+  - confidence's
+  - confidences
+  - overconfidence
+  - self-confidence
+  - underconfidence
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Confidence at his
+    Jul 2025 press conference?' (KXFEDMENTION-25JUL-CONF)
+Consumer Confidence:
+  synonyms:
+  - consumer confidence
+  - consumer confidence index
+  - consumer confidence levels
+  - consumer confidence survey
+  - consumer's confidence
+  - consumer-confidence
+  - consumers' confidence
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Consumer Confidence
+    at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-CONS)
+Credit:
+  synonyms:
+  - credit
+  - credit account
+  - credit facility
+  - credit history
+  - credit limit
+  - credit line
+  - credit report
+  - credit risk
+  - credit score
+  - credit union
+  - credit's
+  - credit-application
+  - credit-based
+  - credit-bureau
+  - credit-card
+  - credit-default
+  - credit-market
+  - credit-terms
+  - credit-transaction
+  - credits
+  - creditworthiness
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Credit at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-CRED)
+Cut (3+):
+  synonyms:
+  - cut
+  - cut's
+  - cut-in
+  - cut-off
+  - cut-rate
+  - cutback
+  - cutlery
+  - cutout
+  - cutover
+  - cuts
+  - cutscene
+  - cutthroat
+  - cutting
+  - cutting-edge
+  - cutup
+  threshold: 3
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Cut (3+ times) at
+    his Sep 2025 press conference?' (KXFEDMENTION-25SEP-CUT)
+Cut:
+  synonyms:
+  - cut
+  - cut's
+  - cut-in
+  - cut-off
+  - cut-rate
+  - cutback
+  - cutlery
+  - cutout
+  - cutover
+  - cuts
+  - cutscene
+  - cutthroat
+  - cutting
+  - cutting-edge
+  - cutup
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Cut at his Jul 2025
+    press conference?' (KXFEDMENTION-25JUL-CUT)
+Data:
+  synonyms:
+  - big data
+  - data
+  - data analysis
+  - data collection
+  - data management
+  - data point
+  - data processing
+  - data science
+  - data set
+  - data storage
+  - data visualization
+  - data's
+  - data-driven
+  - data-mining
+  - data-sharing
+  - datas
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Data at his Oct
+    2025 press conference?' (KXFEDMENTION-25OCT-DATA)
+Defense:
+  synonyms:
+  - case defense
+  - defense
+  - defense attorney
+  - defense contractor
+  - defense force
+  - defense industry
+  - defense mechanisms
+  - defense policy
+  - defense spending
+  - defense strategy
+  - defense system
+  - defense's
+  - defenses
+  - national defense
+  - self-defense
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Defense at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-DEF)
+Dissent:
+  synonyms:
+  - dissent
+  - dissent's
+  - dissents
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Dissent at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-DISS)
+Dot Plot:
+  synonyms:
+  - dot plot
+  - dot plot's
+  - dot plots
+  - dot-plot
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Dot Plot at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-DOT)
+Dual:
+  synonyms:
+  - dual
+  - dual's
+  - dual-mode
+  - dual-purpose
+  - dual-system
+  - dual-use
+  - duals
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Dual at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-DUAL)
+Egg:
+  synonyms:
+  - egg
+  - egg yolk
+  - egg's
+  - egg-based
+  - egg-shaped
+  - egg-white
+  - eggplant
+  - eggs
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Egg at his Jan 2026
+    press conference?' (KXFEDMENTION-26JAN-EGG)
+Energy:
+  synonyms:
+  - energies
+  - energy
+  - energy consumption
+  - energy market
+  - energy production
+  - energy resources
+  - energy sector
+  - energy sources
+  - energy systems
+  - energy's
+  - energy-efficient
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Energy at his Sep
+    2025 press conference?' (KXFEDMENTION-25SEP-ENER)
+Expectation:
+  synonyms:
+  - expectation
+  - expectation management
+  - expectation's
+  - expectation-based
+  - expectation-driven
+  - expectations
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Expectation at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-EXPE)
+Fifty / 50:
+  synonyms:
+  - 50 percent
+  - 50's
+  - 50-50
+  - 50-50 chance
+  - fifties
+  - fifty / 50
+  - fifty percent
+  - fifty's
+  - fifty-eight
+  - fifty-five
+  - fifty-four
+  - fifty-nine
+  - fifty-one
+  - fifty-seven
+  - fifty-six
+  - fifty-three
+  - fifty-two
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Fifty / 50 at his
+    Sep 2025 press conference?' (KXFEDMENTION-25SEP-FFTY)
+Forecast:
+  synonyms:
+  - economic forecast
+  - forecast
+  - forecast analysis
+  - forecast model
+  - forecast report
+  - forecast's
+  - forecasted
+  - forecasting
+  - forecasting techniques
+  - forecasts
+  - forecasts-based
+  - long-term forecast
+  - short-term forecast
+  - weather forecast
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Forecast at his
+    Jul 2025 press conference?' (KXFEDMENTION-25JUL-FOREC)
+Fort Knox:
+  synonyms:
+  - fort knox
+  - fort knox's
+  - fort knoxes
+  - fort-knox
+  - fort-knox's
+  - fort-knoxes
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Fort Knox at his
+    Oct 2025 press conference?' (KXFEDMENTION-25OCT-FKNO)
+Fraud:
+  synonyms:
+  - fraud
+  - fraud cases
+  - fraud detection
+  - fraud investigation
+  - fraud prevention
+  - fraud schemes
+  - fraud's
+  - fraud-related
+  - frauds
+  - fraudulent
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Fraud at his Sep
+    2025 press conference?' (KXFEDMENTION-25SEP-FRUD)
+Gas / Gasoline / Natural Gas:
+  synonyms:
+  - gas
+  - gas / gasoline / natural gas
+  - gas-powered
+  - gases
+  - gasoline
+  - gasoline's
+  - gasoline-powered
+  - natural gas
+  - natural gas's
+  - natural-gas
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Gas / Gasoline /
+    Natural Gas at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-GAS)
+Genius:
+  synonyms:
+  - genius
+  - genius's
+  - genius-level
+  - genius-like
+  - genius-powered
+  - genius-quality
+  - geniuses
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Genius at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-GEN)
+Gold:
+  synonyms:
+  - gold
+  - gold's
+  - gold-plated
+  - gold-standard
+  - golden
+  - golden-hued
+  - golds
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Gold at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-GOLD)
+Good Afternoon:
+  synonyms:
+  - good afternoon
+  - good afternoons
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Good Afternoon at
+    his Jan 2026 press conference?' (KXFEDMENTION-26JAN-GOOD)
+Goods inflation:
+  synonyms:
+  - goods inflation
+  - goods inflations
+  - goods' inflation
+  - goods-inflation
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Goods inflation
+    at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-GOODS)
+Growth:
+  synonyms:
+  - growth
+  - growth factor
+  - growth hacking
+  - growth mindset
+  - growth potential
+  - growth rate
+  - growth strategy
+  - growth's
+  - growth-oriented
+  - growths
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Growth at his Oct
+    2025 press conference?' (KXFEDMENTION-25OCT-GRWT)
+Inflation:
+  synonyms:
+  - inflation
+  - inflation's
+  - inflations
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Inflation at his
+    Jul 2025 press conference?' (KXFEDMENTION-25JUL-INFL)
+Lawsuit:
+  synonyms:
+  - lawsuit
+  - lawsuit claims
+  - lawsuit filings
+  - lawsuit outcomes
+  - lawsuit's
+  - lawsuit-based
+  - lawsuit-related
+  - lawsuits
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Lawsuit at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-LAWS)
+Layoff:
+  synonyms:
+  - layoff
+  - layoff announcements
+  - layoff benefits
+  - layoff impacts
+  - layoff policies
+  - layoff procedures
+  - layoff's
+  - layoff-related
+  - layoffs
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Layoff at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-LAYO)
+Lisa / Cook:
+  synonyms:
+  - cook
+  - cook's
+  - cooks
+  - lisa
+  - lisa / cook
+  - lisa cook
+  - lisa's
+  - lisa-cook
+  - lisas
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Lisa / Cook at his
+    Sep 2025 press conference?' (KXFEDMENTION-25SEP-COOK)
+Median:
+  synonyms:
+  - median
+  - median age
+  - median household
+  - median income
+  - median line
+  - median point
+  - median range
+  - median's
+  - median-value
+  - medians
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Median at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-MEDI)
+National Debt:
+  synonyms:
+  - national debt
+  - national debt's
+  - national debts
+  - national-debt
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say National Debt at
+    his Jan 2026 press conference?' (KXFEDMENTION-26JAN-NATI)
+Obvious:
+  synonyms:
+  - obvious
+  - obvious choice
+  - obvious fact
+  - obvious's
+  - obvious-looking
+  - obviouses
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Obvious at his Oct
+    2025 press conference?' (KXFEDMENTION-25OCT-OBVI)
+Pandemic:
+  synonyms:
+  - pandemic
+  - pandemic management
+  - pandemic planning
+  - pandemic preparedness
+  - pandemic's
+  - pandemic-related
+  - pandemic-response
+  - pandemics
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Pandemic at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-PAND)
+Pardon:
+  synonyms:
+  - case-by-case pardon
+  - pardon
+  - pardon me
+  - pardonable
+  - pardonable offenses
+  - pardons
+  - "pardon\u2019s"
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Pardon at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-PARD)
+President:
+  synonyms:
+  - president
+  - president of the united states
+  - president pro tempore
+  - president's
+  - president's office
+  - president-elect
+  - presidential
+  - presidents
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say President at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-PRES)
+Probability:
+  synonyms:
+  - probabilities
+  - probability
+  - probability distribution
+  - probability model
+  - probability theory
+  - probability's
+  - probability-based
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Probability at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-PROB)
+Projection:
+  synonyms:
+  - projected
+  - projection
+  - projection analysis
+  - projection mapping
+  - projection model
+  - projection techniques
+  - projection's
+  - projection-based
+  - projections
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Projection at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-PROJ)
+QE / Quantitative Easing:
+  synonyms:
+  - qe
+  - qe / quantitative easing
+  - qe's
+  - qe-powered
+  - qes
+  - quantitative easing
+  - quantitative easing policy
+  - quantitative easing's
+  - quantitative easings
+  - quantitative-easing
+  - quantitative-easings
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say QE / Quantitative
+    Easing at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-QE)
+QT / Quantitative Tightening:
+  synonyms:
+  - qt / quantitative tightening
+  - qt approach
+  - qt measures
+  - qt process
+  - qt strategy
+  - qt's
+  - qt-powered
+  - qts
+  - quantitative tightening policy
+  - quantitative tightening's
+  - quantitative tightenings
+  - quantitative-tightening
+  - quantitative-tightening's
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say QT / Quantitative
+    Tightening at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-QT)
+Quantitative Easing / QE:
+  synonyms:
+  - qe's
+  - qes
+  - quantitative easing / qe
+  - quantitative easing's
+  - quantitative easings
+  - quantitative-easing
+  - quantitative-easing's
+  - quantitative-easinges
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Quantitative Easing
+    / QE at his Jul 2025 press conference?' (KXFEDMENTION-25JUL-QE)
+Quantitative Tightening / QT:
+  synonyms:
+  - qt
+  - qt's
+  - qt-powered
+  - qts
+  - quantitative tightening
+  - quantitative tightening / qt
+  - quantitative tightening's
+  - quantitative tightenings
+  - quantitative-tightening
+  - quantitative-tightenings
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Quantitative Tightening
+    / QT at his Jul 2025 press conference?' (KXFEDMENTION-25JUL-QT)
+Real Wage:
+  synonyms:
+  - real wage
+  - real wage's
+  - real wages
+  - real-wage
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Real Wage at his
+    Jun 2025 press conference?' (KXFEDMENTION-25JUN-RW)
+Recession:
+  synonyms:
+  - recession
+  - recession's
+  - recessions
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Recession at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-RECE)
+Reconciliation:
+  synonyms:
+  - reconciliation
+  - reconciliation agreement
+  - reconciliation efforts
+  - reconciliation strategies
+  - reconciliation's
+  - reconciliation-process
+  - reconciliations
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Reconciliation at
+    his Jul 2025 press conference?' (KXFEDMENTION-25JUL-REC)
+Renovation:
+  synonyms:
+  - home-renovation
+  - office-renovation
+  - renovation
+  - renovation costs
+  - renovation ideas
+  - renovation plans
+  - renovation project
+  - renovation services
+  - renovation techniques
+  - renovation's
+  - renovations
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Renovation at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-RENO)
+Resign:
+  synonyms:
+  - resign
+  - resign's
+  - resign-to
+  - resignations
+  - resignations-committee
+  - resigning
+  - resigns
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Resign at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-RES)
+Restrictive:
+  synonyms:
+  - restrictive
+  - restrictive's
+  - restrictives
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Restrictive at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-REST)
+Shutdown / Shut Down:
+  synonyms:
+  - shut down
+  - shut down's
+  - shut-down
+  - shut-downs
+  - shutdown / shut down
+  - shutdown's
+  - shutdowns
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Shutdown / Shut
+    Down at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-SHUT)
+Soft Landing:
+  synonyms:
+  - soft landing
+  - soft landing's
+  - soft landings
+  - soft-landing
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Soft Landing at
+    his Jan 2026 press conference?' (KXFEDMENTION-26JAN-SOFT)
+Softening:
+  synonyms:
+  - softening
+  - softening agents
+  - softening effect
+  - softening process
+  - softening's
+  - softening's impact
+  - softening-agent
+  - softenings
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Softening at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-SOFTE)
+Spending:
+  synonyms:
+  - spending
+  - spending habits
+  - spending patterns
+  - spending's
+  - spending-related
+  - spendings
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Spending at his
+    Jul 2025 press conference?' (KXFEDMENTION-25JUL-SPND)
+Stablecoin:
+  synonyms:
+  - stablecoin
+  - stablecoin technology
+  - stablecoin's
+  - stablecoin-backed
+  - stablecoins
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Stablecoin at his
+    Dec 2025 press conference?' (KXFEDMENTION-25DEC-STAB)
+Stagflation:
+  synonyms:
+  - stagflation
+  - stagflation's
+  - stagflation-related
+  - stagflationary
+  - stagflations
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Stagflation at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-STAG)
+Stephen / Miran:
+  synonyms:
+  - miran
+  - miran's
+  - mirans
+  - stephen
+  - stephen / miran
+  - stephen's
+  - stephens
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Stephen / Miran
+    at his Sep 2025 press conference?' (KXFEDMENTION-25SEP-MRAN)
+Survey:
+  synonyms:
+  - case survey
+  - field survey
+  - mail survey
+  - online survey
+  - survey
+  - survey results
+  - survey's
+  - survey-based
+  - surveying
+  - surveys
+  - telephone survey
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Survey at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-SURV)
+Tariff:
+  synonyms:
+  - tariff
+  - tariff schedule
+  - tariff's
+  - tariff-free
+  - tariff-rate
+  - tariffs
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Tariff at his Jul
+    2025 press conference?' (KXFEDMENTION-25JUL-TAR)
+Tariff Inflation:
+  synonyms:
+  - tariff inflation
+  - tariff inflations
+  - tariff's inflation
+  - tariff-inflation
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Tariff Inflation
+    at his Jan 2026 press conference?' (KXFEDMENTION-26JAN-TARI)
+Tax:
+  synonyms:
+  - tax
+  - tax's
+  - tax-advantaged
+  - tax-code
+  - tax-collecting
+  - tax-collection
+  - tax-deductible
+  - tax-deferred
+  - tax-exempt
+  - tax-free
+  - tax-related
+  - tax-return
+  - taxable
+  - taxation
+  - taxes
+  - taxpayer
+  - taxpayers
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Tax at his Jan 2026
+    press conference?' (KXFEDMENTION-26JAN-TAX)
+Trade War:
+  synonyms:
+  - trade war
+  - trade war's
+  - trade wars
+  - trade-war
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Trade War at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-TRAD)
+Trump:
+  synonyms:
+  - trump
+  - trump administration
+  - trump card
+  - trump tower
+  - trump's
+  - trump-related
+  - trumpism
+  - trumps
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Trump at his Jan
+    2026 press conference?' (KXFEDMENTION-26JAN-TRUM)
+Uncertainty:
+  synonyms:
+  - uncertainties
+  - uncertainty
+  - uncertainty analysis
+  - uncertainty principle
+  - uncertainty's
+  - uncertainty-driven
+  - uncertainty-related
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Uncertainty at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-UNCE)
+Uncertainty (3+):
+  synonyms:
+  - uncertainties
+  - uncertainty
+  - uncertainty analysis
+  - uncertainty principle
+  - uncertainty's
+  - uncertainty-driven
+  - uncertainty-related
+  threshold: 3
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Uncertainty (3+
+    times) at his Dec 2025 press conference?' (KXFEDMENTION-25DEC-UNCE)
+Uncertainty (5+):
+  synonyms:
+  - uncertainties
+  - uncertainty
+  - uncertainty analysis
+  - uncertainty principle
+  - uncertainty's
+  - uncertainty-driven
+  - uncertainty-related
+  threshold: 5
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Uncertainty (5+
+    Times) at his Oct 2025 press conference?' (KXFEDMENTION-25OCT-UNCE)
+Unchanged:
+  synonyms:
+  - unchanged
+  - unchanged's
+  - unchangedly
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Unchanged at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-UNCH)
+Unemployment:
+  synonyms:
+  - unemployment
+  - unemployment benefits
+  - unemployment insurance
+  - unemployment rate
+  - unemployment rates
+  - unemployment's
+  - unemployment-related
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Unemployment at
+    his Jul 2025 press conference?' (KXFEDMENTION-25JUL-UNEMP)
+Volatility:
+  synonyms:
+  - volatilities
+  - volatility
+  - volatility index
+  - volatility's
+  - volatility-adjusted
+  - volatility-related
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Volatility at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-VOLA)
+Yield Curve:
+  synonyms:
+  - yield curve
+  - yield curve's
+  - yield curves
+  - yield-curve
+  threshold: 1
+  scope: powell_only
+  match_mode: variants
+  description: Auto-generated from Kalshi market 'Will Powell say Yield Curve at his
+    Jan 2026 press conference?' (KXFEDMENTION-26JAN-YIEL)

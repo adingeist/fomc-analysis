@@ -16,16 +16,17 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 from openai import OpenAI
 
-from .kalshi_api import KalshiClient
+from .kalshi_client_factory import KalshiClientProtocol
 from .variants.generator import generate_variants
 from .parsing.speaker_segmenter import load_segments_jsonl
 
@@ -37,6 +38,8 @@ class ContractWord:
     market_ticker: str
     market_title: str
     variants: List[str]
+    threshold: Optional[int] = None
+    markets: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -74,34 +77,140 @@ def parse_market_title(title: str) -> Optional[str]:
     title : str
         Market title from Kalshi.
 
+    market_status : Optional[str]
+        Optional status filter ("open", "resolved", etc.).
+
     Returns
     -------
     Optional[str]
         Extracted word/phrase, or None if parsing fails.
     """
-    # Remove common suffixes
-    title = title.strip()
+    word, _ = parse_market_metadata(title)
+    return word
 
-    # Pattern 1: Remove " mention" suffix
-    if title.lower().endswith(" mention"):
-        return title[:-8].strip()
 
-    # Pattern 2: Direct word (single or multi-word)
-    return title
+PAREN_THRESHOLD_PATTERN = re.compile(
+    r"\((?P<threshold>\d+)\s*\+\s*(?:times|mentions)?\)",
+    re.IGNORECASE,
+)
+THRESHOLD_PATTERN = re.compile(
+    r"(?P<threshold>\d+)\s*\+\s*(?:times|mentions)?\)?$",
+    re.IGNORECASE,
+)
+QUOTE_PATTERN = re.compile(r"[\"'“”‘’]([^\"'“”‘’]+)[\"'“”‘’]")
+QUESTION_FOCUS_PATTERNS = [
+    re.compile(r"will\s+(?:chair\s+)?powell\s+(?:say|mention|use|reference)\s+(?P<phrase>.+)", re.IGNORECASE),
+]
+TRAILING_CONTEXT_CUES = [
+    " at his ",
+    " at the ",
+    " at ",
+    " during ",
+    " before ",
+    " in his ",
+    " in the ",
+    " in ",
+    " on ",
+    " for ",
+    " by ",
+]
+
+
+def parse_market_metadata(title: str) -> tuple[Optional[str], Optional[int]]:
+    """Return cleaned contract phrase and inferred threshold from a title."""
+    if not title:
+        return None, None
+
+    cleaned = title.strip()
+    threshold = None
+
+    match = PAREN_THRESHOLD_PATTERN.search(cleaned)
+    if match:
+        threshold = int(match.group("threshold"))
+        cleaned = (cleaned[: match.start()] + cleaned[match.end():]).strip()
+
+    lower = cleaned.lower()
+    if lower.endswith(" mention"):
+        cleaned = cleaned[: -len(" mention")].strip()
+    elif lower.endswith(" mentions"):
+        cleaned = cleaned[: -len(" mentions")].strip()
+
+    match = THRESHOLD_PATTERN.search(cleaned)
+    if match:
+        threshold = int(match.group("threshold"))
+        cleaned = cleaned[: match.start()].rstrip().rstrip("(").strip()
+
+    cleaned = extract_base_phrase(cleaned)
+
+    return cleaned or None, threshold
+
+
+def strip_contextual_suffix(phrase: str) -> str:
+    lowered = phrase.lower()
+    for cue in TRAILING_CONTEXT_CUES:
+        idx = lowered.find(cue)
+        if idx != -1:
+            return phrase[:idx]
+    return phrase
+
+
+def normalize_phrase_case(phrase: str) -> str:
+    stripped = phrase.strip()
+    if not stripped:
+        return phrase
+    if stripped.isupper() and len(stripped) > 3:
+        return stripped.title()
+    if stripped.islower():
+        return stripped.title()
+    return stripped
+
+
+def extract_base_phrase(text: str) -> str:
+    if not text:
+        return text
+
+    stripped = text.strip().strip("?")
+
+    quote_match = QUOTE_PATTERN.search(stripped)
+    if quote_match:
+        candidate = quote_match.group(1)
+        return normalize_phrase_case(candidate)
+
+    for pattern in QUESTION_FOCUS_PATTERNS:
+        match = pattern.search(stripped)
+        if match:
+            phrase = match.group("phrase")
+            phrase = strip_contextual_suffix(phrase)
+            phrase = re.sub(r"\([^)]*\)", "", phrase)
+            phrase = re.split(r"\bor\b", phrase, 1)[0]
+            phrase = phrase.strip()
+            phrase = phrase.strip(" \"'.,")
+            return normalize_phrase_case(phrase)
+
+    stripped = re.sub(r"\([^)]*\)", "", stripped)
+    stripped = stripped.strip()
+    return normalize_phrase_case(stripped)
+
+
+def _segment_attr(segment, attr: str):
+    if isinstance(segment, dict):
+        return segment.get(attr)
+    return getattr(segment, attr, None)
 
 
 def fetch_mention_contracts(
-    kalshi_client: KalshiClient,
+    kalshi_client: KalshiClientProtocol,
     series_ticker: str = "KXFEDMENTION",
     event_ticker: Optional[str] = None,
+    market_status: Optional[str] = None,
 ) -> List[ContractWord]:
     """
     Fetch mention contracts from Kalshi API.
 
     Parameters
     ----------
-    kalshi_client : KalshiClient
-        Configured Kalshi API client.
+    kalshi_client : KalshiClientProtocol
+        Configured Kalshi API client (legacy REST or SDK adapter).
     series_ticker : str, default="KXFEDMENTION"
         Series ticker for mention contracts.
     event_ticker : Optional[str]
@@ -113,7 +222,7 @@ def fetch_mention_contracts(
     List[ContractWord]
         List of contract words (without variants yet).
     """
-    contracts = []
+    contracts: Dict[str, ContractWord] = {}
 
     if event_ticker:
         # Fetch specific event
@@ -121,22 +230,79 @@ def fetch_mention_contracts(
         markets = event_data.get("event", {}).get("markets", [])
     else:
         # Fetch all markets in series
-        markets = kalshi_client.get_markets(series_ticker=series_ticker)
+        markets = kalshi_client.get_markets(
+            series_ticker=series_ticker,
+        )
+
+    if market_status:
+        desired_status = market_status.lower()
+
+        def _status_matches(market: Dict[str, Any]) -> bool:
+            status = str(market.get("status", "")).lower()
+            return status == desired_status
+
+        filtered = [m for m in markets if _status_matches(m)]
+        if not filtered:
+            print(
+                f"Warning: No markets returned with status '{market_status}'."
+            )
+        else:
+            markets = filtered
 
     for market in markets:
         title = market.get("title", "")
         ticker = market.get("ticker", "")
 
-        word = parse_market_title(title)
-        if word:
-            contracts.append(ContractWord(
-                word=word,
-                market_ticker=ticker,
-                market_title=title,
-                variants=[],  # Will be filled later
-            ))
+        word, threshold = parse_market_metadata(title)
+        if not word:
+            continue
 
-    return contracts
+        threshold_value = threshold if threshold is not None else 1
+
+        market_record = {
+            "ticker": ticker,
+            "title": title,
+            "threshold": threshold_value,
+            "event_ticker": market.get("event_ticker"),
+            "close_time": market.get("close_time"),
+            "expiration_time": market.get("expiration_time"),
+            "close_date": None,
+            "expiration_date": None,
+        }
+        from datetime import datetime
+        for ts_key, date_key in [("close_time", "close_date"), ("expiration_time", "expiration_date")]:
+            ts = market_record[ts_key]
+            if ts:
+                try:
+                    market_record[date_key] = datetime.fromisoformat(ts.replace("Z", "+00:00")).date().isoformat()
+                except ValueError:
+                    market_record[date_key] = ts[:10]
+
+        key = f"{word.lower()}__{threshold_value}"
+        existing = contracts.get(key)
+        if existing:
+            if threshold_value is not None and (
+                existing.threshold is None or existing.threshold < threshold_value
+            ):
+                existing.threshold = threshold_value
+                existing.market_ticker = ticker
+                existing.market_title = title
+            existing.markets.append(market_record)
+            continue
+
+        contracts[key] = ContractWord(
+            word=word,
+            market_ticker=ticker,
+            market_title=title,
+            variants=[],  # Will be filled later
+            threshold=threshold_value,
+            markets=[market_record],
+        )
+
+    return list(contracts.values())
+
+
+VARIANT_BATCH_SIZE = 10
 
 
 def generate_word_variants(
@@ -147,34 +313,65 @@ def generate_word_variants(
     """
     Generate word variants using OpenAI for each contract word.
 
-    Parameters
-    ----------
-    contract_words : List[ContractWord]
-        List of contract words.
-    openai_client : OpenAI
-        Configured OpenAI client.
-    cache_dir : Path
-        Directory to cache variant results.
-
-    Returns
-    -------
-    List[ContractWord]
-        Contract words with variants populated.
+    Requests are dispatched concurrently (10 at a time) using asyncio to
+    accelerate batched generation. Progress prints are streamed to stdout.
     """
+    if not contract_words:
+        return contract_words
+
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    for contract in contract_words:
-        # Generate variants using existing generator
-        result = generate_variants(
-            contract=contract.word,
-            base_phrases=[contract.word],
-            openai_client=openai_client,
-            cache_dir=cache_dir,
-            model="gpt-4o-mini",
-            force_regenerate=False,
-        )
+    async def runner():
+        semaphore = asyncio.Semaphore(VARIANT_BATCH_SIZE)
+        print_lock = asyncio.Lock()
+        total = len(contract_words)
+        completed = 0
 
-        contract.variants = result.variants
+        async def process(contract: ContractWord):
+            nonlocal completed
+            async with semaphore:
+                try:
+                    threshold_value = contract.threshold if contract.threshold is not None else 1
+                    market_records = [
+                        {
+                            "ticker": entry.get("ticker"),
+                            "title": entry.get("title"),
+                            "threshold": entry.get("threshold") if entry.get("threshold") is not None else 1,
+                        }
+                        for entry in contract.markets
+                    ] or [{
+                        "ticker": contract.market_ticker,
+                        "title": contract.market_title,
+                        "threshold": threshold_value,
+                    }]
+
+                    result = await asyncio.to_thread(
+                        generate_variants,
+                        contract.word,
+                        [contract.word.lower()],
+                        openai_client,
+                        cache_dir,
+                        "gpt-4o-mini",
+                        False,
+                        {
+                            "threshold": threshold_value,
+                            "markets": market_records,
+                        },
+                    )
+                    contract.variants = result.variants
+                except Exception as exc:  # pragma: no cover - network/IO errors
+                    contract.variants = [contract.word.lower()]
+                    async with print_lock:
+                        print(f"Variant generation failed for {contract.word}: {exc}")
+                finally:
+                    async with print_lock:
+                        completed += 1
+                        print(f"[variants] {completed}/{total}: {contract.word}", flush=True)
+
+        tasks = [asyncio.create_task(process(contract)) for contract in contract_words]
+        await asyncio.gather(*tasks)
+
+    asyncio.run(runner())
 
     return contract_words
 
@@ -204,13 +401,15 @@ def scan_transcript_for_words(
     segments = load_segments_jsonl(segments_file)
 
     # Build text based on scope
-    if scope == "powell_only":
-        text_parts = [
-            seg["text"] for seg in segments
-            if seg.get("role", "").lower() == "powell"
-        ]
-    else:
-        text_parts = [seg["text"] for seg in segments]
+    text_parts: List[str] = []
+    for seg in segments:
+        text = _segment_attr(seg, "text")
+        if not text:
+            continue
+        role = (_segment_attr(seg, "role") or "").lower()
+        if scope == "powell_only" and role != "powell":
+            continue
+        text_parts.append(text)
 
     text = " ".join(text_parts).lower()
 
@@ -352,6 +551,16 @@ def save_analysis_results(
         )
 
     # Save summary CSV
+    summary_columns = [
+        "Word",
+        "Variants Count",
+        "Total Transcripts",
+        "Transcripts with Mention",
+        "Mention Frequency",
+        "Total Mentions",
+        "Avg Mentions/Transcript",
+        "Max Mentions",
+    ]
     summary_data = []
     for analysis in analyses:
         summary_data.append({
@@ -365,8 +574,9 @@ def save_analysis_results(
             "Max Mentions": analysis.max_mentions_in_transcript,
         })
 
-    summary_df = pd.DataFrame(summary_data)
-    summary_df = summary_df.sort_values("Mention Frequency", ascending=False)
+    summary_df = pd.DataFrame(summary_data, columns=summary_columns)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values("Mention Frequency", ascending=False)
 
     summary_file = output_dir / "mention_summary.csv"
     summary_df.to_csv(summary_file, index=False)
@@ -377,14 +587,46 @@ def save_analysis_results(
     print(f"  - mention_summary.csv: Summary table")
 
 
+def contract_words_to_mapping(
+    contract_words: List[ContractWord],
+    default_scope: str = "powell_only",
+) -> Dict[str, Dict[str, object]]:
+    """Convert fetched contract words into contract mapping entries."""
+    mapping: Dict[str, Dict[str, object]] = {}
+
+    def display_name(contract: ContractWord) -> str:
+        if contract.threshold and contract.threshold > 1:
+            return f"{contract.word} ({contract.threshold}+)"
+        return contract.word
+
+    for contract in sorted(contract_words, key=lambda c: c.word.lower()):
+        base = contract.word.lower()
+        variants = sorted({base, *(variant.lower() for variant in contract.variants or [])})
+        match_mode = "variants" if len(variants) > 1 else "strict_literal"
+
+        mapping[display_name(contract)] = {
+            "synonyms": variants,
+            "threshold": contract.threshold or 1,
+            "scope": default_scope,
+            "match_mode": match_mode,
+            "description": (
+                f"Auto-generated from Kalshi market '{contract.market_title}' "
+                f"({contract.market_ticker})"
+            ),
+        }
+
+    return mapping
+
+
 def run_kalshi_analysis(
-    kalshi_client: KalshiClient,
+    kalshi_client: KalshiClientProtocol,
     openai_client: OpenAI,
     series_ticker: str = "KXFEDMENTION",
     event_ticker: Optional[str] = None,
     segments_dir: Path = Path("data/segments"),
     output_dir: Path = Path("data/kalshi_analysis"),
     scope: str = "powell_only",
+    market_status: Optional[str] = None,
 ):
     """
     Run complete Kalshi contract analysis pipeline.
@@ -405,6 +647,8 @@ def run_kalshi_analysis(
         Directory to save results.
     scope : str, default="powell_only"
         Search scope: "powell_only" or "full_transcript".
+    market_status : Optional[str]
+        Optional Kalshi market status filter passed to `get_markets`.
     """
     print(f"=== Kalshi Contract Analysis ===\n")
     print(f"Series: {series_ticker}")
@@ -415,7 +659,10 @@ def run_kalshi_analysis(
     # Step 1: Fetch contracts
     print("Step 1: Fetching contracts from Kalshi API...")
     contract_words = fetch_mention_contracts(
-        kalshi_client, series_ticker, event_ticker
+        kalshi_client,
+        series_ticker,
+        event_ticker,
+        market_status=market_status,
     )
     print(f"✓ Fetched {len(contract_words)} contract words\n")
 

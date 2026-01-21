@@ -14,6 +14,8 @@ This module provides all required CLI commands:
 from __future__ import annotations
 
 import os
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +39,7 @@ from .featurizer import (
 from .models import EWMAModel, BetaBinomialModel
 from .backtester_v2 import WalkForwardBacktester, save_backtest_result
 from .fetcher import fetch_transcripts as fetch_transcripts_impl
+from .kalshi_client_factory import get_kalshi_client
 
 
 # Load environment variables
@@ -649,6 +652,200 @@ def report(results: Path, output: Path):
     click.echo(report_df.head(10).to_string(index=False))
 
 
+def _display_contract_name(word: str, threshold: Optional[int]) -> str:
+    if threshold and threshold > 1:
+        return f"{word} ({threshold}+)"
+    return word
+
+
+def _sanitize_contract_column(name: str) -> str:
+    return name.replace("/", "_").replace(" ", "_")
+
+
+def _format_meeting_index(meeting_date, fmt: str) -> str:
+    if fmt == "iso":
+        return meeting_date.isoformat()
+    return meeting_date.strftime("%Y%m%d")
+
+
+@cli.command(name="download-prices")
+@click.option(
+    "--contract-words",
+    type=click.Path(exists=True, path_type=Path),
+    default=Path("data/kalshi_analysis/contract_words.json"),
+    help="Path to contract_words.json produced by Kalshi analyzer/export.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("data/kalshi_analysis/prices.parquet"),
+    help="Destination (.parquet or .csv) for the price table.",
+)
+@click.option(
+    "--start-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Earliest meeting date to include (YYYY-MM-DD).",
+)
+@click.option(
+    "--end-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Latest meeting date to include (YYYY-MM-DD).",
+)
+@click.option(
+    "--date-format",
+    type=click.Choice(["yyyymmdd", "iso"]),
+    default="yyyymmdd",
+    help="Output index format for meeting dates.",
+)
+def download_prices(
+    contract_words: Path,
+    output: Path,
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+    date_format: str,
+):
+    """Download Kalshi mention market prices and pivot them for backtesting."""
+    import json
+
+    meeting_start = start_date.date() if start_date else None
+    meeting_end = end_date.date() if end_date else None
+
+    click.echo(f"Loading contract definitions from {contract_words}...")
+    try:
+        contract_data = json.loads(contract_words.read_text())
+    except json.JSONDecodeError as exc:  # pragma: no cover - malformed user file
+        raise click.ClickException(f"Invalid contract words JSON: {exc}") from exc
+
+    if not isinstance(contract_data, list):
+        raise click.ClickException("contract_words file must contain a list of contract entries")
+
+    market_records = []
+    for entry in contract_data:
+        display_name = _display_contract_name(entry.get("word", ""), entry.get("threshold"))
+        column_name = _sanitize_contract_column(display_name)
+        for market in entry.get("markets") or []:
+            ticker = market.get("ticker")
+            event_date_str = market.get("expiration_date") or market.get("close_date")
+            if not ticker or not event_date_str:
+                continue
+            try:
+                event_date = datetime.fromisoformat(event_date_str).date()
+            except ValueError:
+                continue
+            if meeting_start and event_date < meeting_start:
+                continue
+            if meeting_end and event_date > meeting_end:
+                continue
+            market_records.append(
+                {
+                    "ticker": ticker,
+                    "event_date": event_date,
+                    "column": column_name,
+                    "display": display_name,
+                }
+            )
+
+    seen = set()
+    deduped = []
+    for record in market_records:
+        key = (record["ticker"], record["event_date"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(record)
+    market_records = deduped
+
+    if not market_records:
+        raise click.ClickException("No markets matched the provided filters.")
+
+    click.echo(f"Connecting to Kalshi API (fetching {len(market_records)} markets)...")
+    try:
+        client = get_kalshi_client()
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    price_rows = defaultdict(dict)
+    missing = []
+    start_arg = meeting_start.isoformat() if meeting_start else None
+    end_arg = meeting_end.isoformat() if meeting_end else None
+
+    try:
+        with click.progressbar(market_records, label="Downloading price history") as bar:
+            for record in bar:
+                ticker = record["ticker"]
+                try:
+                    history = client.get_market_history(
+                        ticker,
+                        start_date=start_arg,
+                        end_date=end_arg,
+                    )
+                except Exception as exc:  # pragma: no cover - HTTP/SDK errors
+                    missing.append(f"{ticker}: {exc}")
+                    continue
+
+                if history.empty or ticker not in history.columns:
+                    missing.append(f"{ticker}: no history returned")
+                    continue
+
+                series = pd.to_numeric(history[ticker], errors="coerce")
+                series.index = pd.to_datetime(history.index).normalize()
+                series = series.dropna()
+                if series.empty:
+                    missing.append(f"{ticker}: empty history")
+                    continue
+
+                max_price = series.max()
+                if pd.notna(max_price) and max_price > 1:
+                    series = series / 100.0
+
+                event_ts = pd.Timestamp(record["event_date"])
+                subset = series.loc[series.index <= event_ts]
+                if subset.empty:
+                    missing.append(
+                        f"{ticker}: no quotes on/before {event_ts.date().isoformat()}"
+                    )
+                    continue
+
+                price = float(subset.iloc[-1])
+                date_key = _format_meeting_index(record["event_date"], date_format)
+                price_rows[date_key][record["column"]] = price
+    finally:
+        closer = getattr(client, "close", None)
+        if callable(closer):
+            closer()
+
+    if not price_rows:
+        detail = ""
+        if missing:
+            detail = " Sample errors: " + "; ".join(missing[:3])
+        raise click.ClickException(
+            "No price data was downloaded. Verify Kalshi credentials and market availability." + detail
+        )
+
+    prices_df = pd.DataFrame.from_dict(price_rows, orient="index").sort_index()
+    prices_df.index.name = "date"
+    prices_df = prices_df.reindex(sorted(prices_df.columns), axis=1)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.suffix.lower() == ".csv":
+        prices_df.to_csv(output)
+    else:
+        prices_df.to_parquet(output)
+
+    click.echo(
+        f"\n✓ Saved prices for {prices_df.shape[0]} meetings × {prices_df.shape[1]} contracts to {output}"
+    )
+
+    if missing:
+        click.echo(
+            f"Warning: {len(missing)} markets lacked usable price data. Showing up to five entries:"
+        )
+        for entry in missing[:5]:
+            click.echo(f"  - {entry}")
+
+
 @cli.command()
 @click.option(
     "--series-ticker",
@@ -680,12 +877,19 @@ def report(results: Path, output: Path):
     default="powell_only",
     help="Search scope: powell_only or full_transcript.",
 )
+@click.option(
+    "--market-status",
+    type=str,
+    default=None,
+    help="Optional Kalshi market status filter (e.g., open, resolved).",
+)
 def analyze_kalshi_contracts(
     series_ticker: str,
     event_ticker: Optional[str],
     segments_dir: Path,
     output_dir: Path,
     scope: str,
+    market_status: Optional[str],
 ):
     """
     Analyze Kalshi mention contracts against historical FOMC transcripts.
@@ -697,20 +901,25 @@ def analyze_kalshi_contracts(
     4. Scans all FOMC transcripts for matches
     5. Builds statistical analysis of historical mention frequencies
 
-    Requires KALSHI_API_KEY, KALSHI_API_SECRET, and OPENAI_API_KEY in environment.
+    Requires either (KALSHI_API_KEY, KALSHI_API_SECRET) or
+    (KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_BASE64) along with OPENAI_API_KEY.
     """
-    from .kalshi_api import KalshiClient
+    from .kalshi_client_factory import get_kalshi_client
     from .kalshi_contract_analyzer import run_kalshi_analysis
 
     # Load API clients
     click.echo("Loading API clients...")
 
     # Kalshi client
+    kalshi_client = None
     try:
-        kalshi_client = KalshiClient()
+        kalshi_client = get_kalshi_client()
     except ValueError as e:
         click.echo(f"Error: {e}")
-        click.echo("Please set KALSHI_API_KEY and KALSHI_API_SECRET in environment or .env file")
+        click.echo(
+            "Please set either KALSHI_API_KEY/KALSHI_API_SECRET or "
+            "KALSHI_API_KEY_ID/KALSHI_PRIVATE_KEY_BASE64 in your environment/.env file."
+        )
         return
 
     # OpenAI client
@@ -731,11 +940,119 @@ def analyze_kalshi_contracts(
             segments_dir=segments_dir,
             output_dir=output_dir,
             scope=scope,
+            market_status=market_status,
         )
     except Exception as e:
         click.echo(f"Error during analysis: {e}")
         raise
+    finally:
+        if kalshi_client and hasattr(kalshi_client, "close"):
+            kalshi_client.close()
 
+
+@cli.command()
+@click.option(
+    "--series-ticker",
+    type=str,
+    default="KXFEDMENTION",
+    help="Kalshi series ticker (e.g., KXFEDMENTION).",
+)
+@click.option(
+    "--event-ticker",
+    type=str,
+    default=None,
+    help="Specific event ticker to export mapping from.",
+)
+@click.option(
+    "--market-status",
+    type=str,
+    default=None,
+    help="Optional market status filter when fetching contracts.",
+)
+@click.option(
+    "--scope",
+    type=click.Choice(["powell_only", "full_transcript"]),
+    default="powell_only",
+    help="Default scope to encode in the generated mapping entries.",
+)
+@click.option(
+    "--use-openai/--no-openai",
+    default=True,
+    help="Use OpenAI variant generator when building synonym lists.",
+)
+@click.option(
+    "--variants-dir",
+    type=click.Path(path_type=Path),
+    default=Path("data/kalshi_variants"),
+    help="Cache directory for Kalshi variant generation.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("configs/generated_contract_mapping.yaml"),
+    help="Destination YAML file for the contract mapping.",
+)
+def export_kalshi_contracts(
+    series_ticker: str,
+    event_ticker: Optional[str],
+    market_status: Optional[str],
+    scope: str,
+    use_openai: bool,
+    variants_dir: Path,
+    output: Path,
+):
+    """Export a contract mapping derived from Kalshi mention markets."""
+    import yaml
+
+    from .kalshi_client_factory import get_kalshi_client
+    from .kalshi_contract_analyzer import (
+        fetch_mention_contracts,
+        generate_word_variants,
+        contract_words_to_mapping,
+    )
+
+    click.echo("Fetching Kalshi markets...")
+    kalshi_client = None
+    try:
+        kalshi_client = get_kalshi_client()
+    except ValueError as exc:
+        click.echo(f"Error: {exc}")
+        return
+
+    contract_words = fetch_mention_contracts(
+        kalshi_client,
+        series_ticker=series_ticker,
+        event_ticker=event_ticker,
+        market_status=market_status,
+    )
+    click.echo(f"  Found {len(contract_words)} unique contract titles")
+
+    openai_client = None
+    if use_openai:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            click.echo("Error: OPENAI_API_KEY not set; rerun with --no-openai or configure the key")
+            return
+        openai_client = OpenAI(api_key=api_key)
+        contract_words = generate_word_variants(
+            contract_words,
+            openai_client=openai_client,
+            cache_dir=variants_dir,
+        )
+    else:
+        click.echo("Skipping OpenAI variant generation per --no-openai flag")
+
+    try:
+        mapping = contract_words_to_mapping(contract_words, default_scope=scope)
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("w", encoding="utf-8") as fh:
+            yaml.safe_dump(mapping, fh, sort_keys=False, allow_unicode=False)
+
+        click.echo(f"✓ Wrote {len(mapping)} mapping entries to {output}")
+    finally:
+        if kalshi_client and hasattr(kalshi_client, "close"):
+            kalshi_client.close()
 
 if __name__ == "__main__":
     cli()

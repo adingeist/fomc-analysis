@@ -122,6 +122,23 @@ Add your OpenAI API key (required for variant generation and AI parsing):
 OPENAI_API_KEY=sk-...
 ```
 
+For Kalshi access, set either the legacy REST pair or the RSA SDK pair (preferred).
+The API moved to the elections host, so the `KALSHI_BASE_URL` now defaults to
+`https://api.elections.kalshi.com/trade-api/v2`. Override it only if Kalshi issues
+another migration notice.
+
+```
+# Option A: Legacy REST (if your account still supports it)
+KALSHI_API_KEY=...
+KALSHI_API_SECRET=...
+
+# Option B: RSA SDK (recommended)
+KALSHI_API_KEY_ID=...
+KALSHI_PRIVATE_KEY_BASE64=...
+# Optional override
+# KALSHI_BASE_URL=https://api.elections.kalshi.com/trade-api/v2
+```
+
 ---
 
 ## Quick Start
@@ -144,27 +161,68 @@ uv run fomc parse \
 
 This uses deterministic parsing to extract speaker segments into JSONL format with proper role assignment (`"powell"`, `"reporter"`, `"moderator"`, `"other"`).
 
-### 3. Generate Phrase Variants
+### 3. Analyze Historical Kalshi Contract Universe
+
+Fetch every mention contract Kalshi has ever listed (open or resolved) and build
+frequency stats across all transcripts. This step ensures we are training on the
+exact keywords that have traded in the past.
+
+```bash
+uv run fomc analyze-kalshi-contracts \
+  --series-ticker KXFEDMENTION \
+  --segments-dir data/segments \
+  --output-dir data/kalshi_analysis \
+  --scope powell_only \
+  --market-status resolved
+```
+
+Outputs:
+- `data/kalshi_analysis/contract_words.json` – canonical word list + Kalshi tickers
+- `data/kalshi_analysis/mention_summary.csv` – quant-level mention stats (see [Quant Analysis](docs/QUANT_ANALYSIS.md))
+- `data/kalshi_analysis/mention_analysis.json` – full distribution per keyword
+
+> **Auth Note:** The CLI now auto-detects either legacy REST creds
+> (`KALSHI_API_KEY`/`KALSHI_API_SECRET`) or SDK creds
+> (`KALSHI_API_KEY_ID`/`KALSHI_PRIVATE_KEY_BASE64`). Set whichever pair you have in `.env` before running.
+
+### 4. Export Kalshi Contract Mapping (auto-sync keywords)
+
+Automatically convert the fetched Kalshi markets into a YAML mapping that the
+rest of the pipeline can consume:
+
+```bash
+uv run fomc export-kalshi-contracts \
+  --series-ticker KXFEDMENTION \
+  --market-status resolved \
+  --output configs/generated_contract_mapping.yaml
+```
+
+This command de-duplicates words across events, optionally generates OpenAI
+variants, and writes a mapping keyed by Kalshi contract names with thresholds
+derived from the market title. Use this generated file in the next stages to
+train on every traded keyword.
+
+### 5. Generate Phrase Variants
 
 ```bash
 uv run fomc build-variants \
-  --contracts configs/contract_mapping.yaml \
+  --contracts configs/generated_contract_mapping.yaml \
   --output-dir data/variants
 ```
 
-### 4. Featurize Transcripts
+### 6. Featurize Transcripts
 
 ```bash
 uv run fomc featurize \
   --segments-dir data/segments \
-  --contracts configs/contract_mapping.yaml \
+  --contracts configs/generated_contract_mapping.yaml \
   --variants-dir data/variants \
   --speaker-mode powell_only \
   --phrase-mode variants \
   --output data/features.parquet
 ```
 
-### 5. Train Model
+### 7. Train Model
 
 ```bash
 uv run fomc train \
@@ -176,19 +234,38 @@ uv run fomc train \
   --output models/beta_model.json
 ```
 
-### 6. Backtest
+### 8. Download Kalshi Prices
+
+```bash
+uv run fomc download-prices \
+  --contract-words data/kalshi_analysis/contract_words.json \
+  --output data/kalshi_analysis/prices.parquet
+```
+
+This fetches historical YES prices for each contract/meeting pair (using
+`KALSHI_API_KEY`/`KALSHI_API_SECRET`) and pivots them to the wide format the
+backtester expects. Use `--date-format iso` if your feature matrix index uses
+`YYYY-MM-DD` instead of `YYYYMMDD`.
+
+### 9. Backtest
 
 ```bash
 uv run fomc backtest \
   --features data/features.parquet \
-  --prices data/prices.csv \
   --model beta \
   --edge-threshold 0.05 \
   --initial-capital 1000 \
+  --prices data/kalshi_analysis/prices.parquet \
   --output results/backtest/
 ```
 
-### 7. Generate Report
+`--prices` expects a wide CSV/Parquet with index = meeting date (YYYY-MM-DD or
+YYYYMMDD) and one column per contract (probability in 0-1 scale). Use
+`uv run fomc download-prices` to build this dataset automatically from
+`data/kalshi_analysis/contract_words.json`. If you omit `--prices`, the
+backtester will still produce model metrics but will not simulate trades.
+
+### 10. Generate Report
 
 ```bash
 uv run fomc report \
@@ -922,7 +999,8 @@ fomc featurize [OPTIONS]
 fomc train [OPTIONS]
 fomc backtest [OPTIONS]
 fomc report [OPTIONS]
-fomc analyze-kalshi-contracts [OPTIONS]  # NEW: Analyze Kalshi mention contracts
+fomc analyze-kalshi-contracts [OPTIONS]
+fomc export-kalshi-contracts [OPTIONS]   # NEW: Auto-build contract mapping from Kalshi series
 ```
 
 Run `fomc <command> --help` for detailed options.
@@ -1023,6 +1101,11 @@ uv run pytest --cov=fomc_analysis --cov-report=html
 
 **Problem:** `uv sync` fails
 **Fix:** Ensure Python 3.12+ is installed. Try `uv sync --no-cache`
+
+### Kalshi API Migration
+
+**Problem:** `API has been moved to https://api.elections.kalshi.com/`
+**Fix:** Upgrade to this version of the toolkit (default base URL already updated) or set `KALSHI_BASE_URL=https://api.elections.kalshi.com/trade-api/v2` in `.env`. Make sure you're using RSA credentials (`KALSHI_API_KEY_ID` + `KALSHI_PRIVATE_KEY_BASE64`).
 
 ---
 

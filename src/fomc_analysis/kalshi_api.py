@@ -26,7 +26,7 @@ import requests
 
 from .config import settings
 
-KALSHI_BASE_URL = "https://trading-api.kalshi.com/trade-api/v2"
+KALSHI_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 
 
 @dataclass
