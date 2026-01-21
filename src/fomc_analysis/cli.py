@@ -299,12 +299,18 @@ def featurize(
     click.echo(f"Featurizing transcripts from {segments_dir}")
 
     # Load contract phrases
+    click.echo(f"Loading contract phrases (mode: {phrase_mode})...")
     use_variants = phrase_mode == "variants"
     contract_phrases = load_contract_phrases(
         contracts,
         variants_dir=variants_dir if use_variants else None,
         use_variants=use_variants,
     )
+    click.echo(f"  Loaded {len(contract_phrases)} contracts")
+
+    # Count segment files
+    segment_files = sorted(segments_dir.glob("*.jsonl"))
+    click.echo(f"Found {len(segment_files)} transcript files to process")
 
     # Configure featurization
     config = FeatureConfig(
@@ -314,8 +320,27 @@ def featurize(
         word_boundaries=True,
     )
 
-    # Build feature matrix
-    features = build_feature_matrix(segments_dir, contract_phrases, config)
+    # Build feature matrix with progress bar
+    from .featurizer import extract_features_from_segments
+    rows = []
+
+    with click.progressbar(segment_files, label="Extracting features") as bar:
+        for segment_file in bar:
+            # Extract date from filename
+            date_str = segment_file.stem
+
+            # Load segments
+            segments = load_segments_jsonl(segment_file)
+
+            # Extract features
+            features = extract_features_from_segments(segments, contract_phrases, config)
+            features["date"] = date_str
+            rows.append(features)
+
+    # Create DataFrame
+    features = pd.DataFrame(rows)
+    if "date" in features.columns:
+        features = features.set_index("date")
 
     # Save to parquet
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -379,7 +404,9 @@ def train(
     click.echo(f"Training {model} model on {features}")
 
     # Load features
+    click.echo("Loading feature matrix...")
     df = pd.read_parquet(features)
+    click.echo(f"  Loaded {df.shape[0]} transcripts with {df.shape[1]} features")
 
     # Convert to binary events (extract _mentioned columns)
     event_cols = [col for col in df.columns if col.endswith("_mentioned")]
@@ -387,18 +414,23 @@ def train(
 
     # Rename columns to remove _mentioned suffix
     events.columns = [col.replace("_mentioned", "") for col in events.columns]
+    click.echo(f"  Processing {len(events.columns)} contracts")
 
     # Train model
+    click.echo(f"Training {model.upper()} model...")
     if model == "ewma":
         model_obj = EWMAModel(alpha=alpha)
+        click.echo(f"  Parameters: alpha={alpha}")
     else:  # beta
         model_obj = BetaBinomialModel(
             alpha_prior=alpha,
             beta_prior=beta_prior,
             half_life=half_life,
         )
+        click.echo(f"  Parameters: alpha={alpha}, beta={beta_prior}, half_life={half_life}")
 
     model_obj.fit(events)
+    click.echo("  Model fitting complete")
 
     # Save model
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -464,25 +496,33 @@ def backtest(
     and prices. At each time step, the model trains on past data and
     predicts the next event.
     """
-    click.echo(f"Running backtest with {model} model")
+    click.echo(f"Running backtest with {model.upper()} model")
 
     # Load features
+    click.echo("Loading feature matrix...")
     df = pd.read_parquet(features)
+    click.echo(f"  Loaded {df.shape[0]} dates")
 
     # Convert to binary events
     event_cols = [col for col in df.columns if col.endswith("_mentioned")]
     events = df[event_cols].copy()
     events.columns = [col.replace("_mentioned", "") for col in events.columns]
+    click.echo(f"  Processing {len(events.columns)} contracts")
 
     # Load prices if provided
     prices_df = None
     if prices:
+        click.echo(f"Loading market prices from {prices}...")
         if prices.suffix == ".parquet":
             prices_df = pd.read_parquet(prices)
         else:
             prices_df = pd.read_csv(prices, index_col=0, parse_dates=True)
+        click.echo(f"  Loaded prices for {prices_df.shape[0]} dates")
+    else:
+        click.echo("No prices provided - will skip trade execution")
 
     # Create backtester
+    click.echo(f"Initializing backtester with edge threshold {edge_threshold}...")
     backtester = WalkForwardBacktester(
         events=events,
         prices=prices_df,
@@ -493,20 +533,30 @@ def backtest(
     if model == "ewma":
         model_class = EWMAModel
         model_params = {"alpha": 0.5}
+        click.echo(f"  Using EWMA model (alpha=0.5)")
     else:  # beta
         model_class = BetaBinomialModel
         model_params = {"alpha_prior": 1.0, "beta_prior": 1.0}
+        click.echo(f"  Using Beta-Binomial model (alpha=1.0, beta=1.0)")
 
     # Run backtest
+    min_train = 3
+    num_steps = len(events) - min_train
+    click.echo(f"\nRunning walk-forward backtest ({num_steps} time steps)...")
+    click.echo("  This may take a while - training model at each step...")
+
     result = backtester.run(
         model_class=model_class,
         model_params=model_params,
         initial_capital=initial_capital,
     )
 
+    click.echo(f"  Backtest execution complete - processed {len(result.trades)} trades")
+
     # Save results
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
+    click.echo(f"\nSaving results to {output}...")
     save_backtest_result(result, output / "backtest_results.json")
 
     # Save equity curve
@@ -514,7 +564,6 @@ def backtest(
 
     # Print metrics
     click.echo(f"\n✓ Backtest complete")
-    click.echo(f"  Results saved to {output}")
     click.echo(f"\nMetrics:")
     for key, value in result.metrics.items():
         click.echo(f"  {key}: {value:.4f}")
@@ -545,31 +594,39 @@ def report(results: Path, output: Path):
     click.echo(f"Generating report from {results}")
 
     # Load backtest results
+    click.echo("Loading backtest results...")
     results_file = Path(results) / "backtest_results.json"
     data = json.loads(results_file.read_text())
 
     trades = data["trades"]
+    click.echo(f"  Found {len(trades)} trades to analyze")
 
     # Aggregate by contract
+    click.echo("Aggregating statistics by contract...")
     contract_stats = {}
-    for trade in trades:
-        contract = trade["contract"]
-        if contract not in contract_stats:
-            contract_stats[contract] = {
-                "trades": 0,
-                "wins": 0,
-                "total_pnl": 0.0,
-                "avg_edge": 0.0,
-            }
 
-        stats = contract_stats[contract]
-        stats["trades"] += 1
-        if trade["pnl"] > 0:
-            stats["wins"] += 1
-        stats["total_pnl"] += trade["pnl"]
-        stats["avg_edge"] += trade["edge"]
+    with click.progressbar(trades, label="Processing trades") as bar:
+        for trade in bar:
+            contract = trade["contract"]
+            if contract not in contract_stats:
+                contract_stats[contract] = {
+                    "trades": 0,
+                    "wins": 0,
+                    "total_pnl": 0.0,
+                    "avg_edge": 0.0,
+                }
+
+            stats = contract_stats[contract]
+            stats["trades"] += 1
+            if trade["pnl"] > 0:
+                stats["wins"] += 1
+            stats["total_pnl"] += trade["pnl"]
+            stats["avg_edge"] += trade["edge"]
+
+    click.echo(f"  Analyzed {len(contract_stats)} unique contracts")
 
     # Compute averages and create report
+    click.echo("Computing final statistics...")
     report_rows = []
     for contract, stats in contract_stats.items():
         report_rows.append({
@@ -587,7 +644,7 @@ def report(results: Path, output: Path):
     output.parent.mkdir(parents=True, exist_ok=True)
     report_df.to_csv(output, index=False)
 
-    click.echo(f"✓ Report saved to {output}")
+    click.echo(f"\n✓ Report saved to {output}")
     click.echo(f"\nTop mispriced contracts:")
     click.echo(report_df.head(10).to_string(index=False))
 
