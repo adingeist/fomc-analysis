@@ -31,7 +31,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Kalshi API credentials
+    # Kalshi API credentials (legacy basic auth)
     kalshi_api_key: str | None = Field(
         default=None,
         description="Kalshi API key for authentication",
@@ -41,6 +41,18 @@ class Settings(BaseSettings):
         default=None,
         description="Kalshi API secret for authentication",
         alias="KALSHI_API_SECRET",
+    )
+
+    # Kalshi API credentials (SDK / RSA key auth)
+    kalshi_api_key_id: str | None = Field(
+        default=None,
+        description="Kalshi API key ID for RSA signature authentication",
+        alias="KALSHI_API_KEY_ID",
+    )
+    kalshi_private_key_base64: str | None = Field(
+        default=None,
+        description="Base64-encoded Kalshi RSA private key",
+        alias="KALSHI_PRIVATE_KEY_BASE64",
     )
 
     # Optional: Kalshi API base URL (for testing or custom endpoints)
