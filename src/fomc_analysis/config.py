@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     2. .env file in the project root (if present)
 
     All settings are optional by default, but you should provide
-    KALSHI_API_KEY and KALSHI_API_SECRET if you plan to use the
-    Kalshi API client.
+    KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_BASE64 if you plan to use the
+    Kalshi SDK client.
     """
 
     model_config = SettingsConfigDict(
@@ -31,16 +31,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Kalshi API credentials (legacy basic auth)
+    # Kalshi API credentials (legacy basic auth - currently unused)
+    # Note: KalshiClient in kalshi_api.py is never instantiated in this codebase.
+    # The codebase uses kalshi_sdk.py with RSA key authentication instead.
+    # If you need to use KalshiClient, provide credentials directly to the constructor.
     kalshi_api_key: str | None = Field(
         default=None,
-        description="Kalshi API key for authentication",
+        description="Kalshi API key for authentication (legacy, currently unused)",
         alias="KALSHI_API_KEY",
-    )
-    kalshi_api_secret: str | None = Field(
-        default=None,
-        description="Kalshi API secret for authentication",
-        alias="KALSHI_API_SECRET",
     )
 
     # Kalshi API credentials (SDK / RSA key auth)

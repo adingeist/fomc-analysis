@@ -79,7 +79,9 @@ class KalshiClient:
         if self.api_key is None:
             self.api_key = settings.kalshi_api_key
         if self.api_secret is None:
-            self.api_secret = settings.kalshi_api_secret
+            # Note: kalshi_api_secret was removed from settings as it's unused.
+            # If you need to use KalshiClient, provide api_secret directly.
+            self.api_secret = getattr(settings, 'kalshi_api_secret', None)
         if self.base_url is None:
             self.base_url = settings.kalshi_base_url or KALSHI_BASE_URL
 
