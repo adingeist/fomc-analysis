@@ -1,0 +1,91 @@
+# Default contract mapping for the Powell analysis toolkit.
+#
+# This YAML file defines a mapping from market contract names to
+# synonyms or phrase variants that are counted as a “mention” when
+# scanning Jerome Powell’s remarks.  Contracts correspond to markets
+# offered by prediction exchanges such as Kalshi (e.g. “AI /
+# Artificial Intelligence”, “Median”, “Projection”).
+#
+# Each top‑level key is the contract name as it appears on the
+# market.  Under each contract you may specify:
+#   synonyms: A list of lowercase strings.  Each string is a
+#     variant that should count as a mention.  Synonyms should be
+#     written in lowercase for consistency.  The parser will lower
+#     case both the transcript and the synonyms before matching.
+#   description: (optional) A human‑readable description of the
+#     contract.  This field is ignored by the code but may be
+#     useful for documentation.
+#
+# You should adjust this file to match the exact resolution rules of
+# the market.  For example, if Kalshi counts any mention of “AI” or
+# “artificial intelligence” regardless of context, include both
+# variants here.  If the contract resolves only on prepared remarks
+# and not Q&A, you could exclude synonyms that appear only in
+# reporters’ questions.
+
+Median:
+  synonyms:
+    - median
+    - medians
+  description: Mention of the term "median" in relation to SEP or projections.
+
+Projection:
+  synonyms:
+    - projection
+    - projections
+  description: Discussion of economic projections, including dot plots and SEP.
+
+"AI / Artificial Intelligence":
+  synonyms:
+    - ai
+    - artificial intelligence
+  description: Any reference to artificial intelligence, AI, or related technologies.
+
+Tax:
+  synonyms:
+    - tax
+    - taxes
+  description: Mentions of tax policy or taxation.
+
+Expectation:
+  synonyms:
+    - expectation
+    - expectations
+  description: References to expectations, often in the context of inflation expectations.
+
+Pandemic:
+  synonyms:
+    - pandemic
+    - pandemics
+    - covid
+  description: Mentions of the pandemic, COVID‑19, or related impacts.
+
+Layoff:
+  synonyms:
+    - layoff
+    - layoffs
+  description: Discussion of layoffs or job cuts.
+
+"Balance of Risk":
+  synonyms:
+    - balance of risks
+    - balanced risks
+  description: Discussion of the balance of risks around the economic outlook.
+
+"Tariff Inflation":
+  synonyms:
+    - tariff
+    - tariffs
+    - tariff inflation
+  description: Mentions of tariffs or tariff‑induced inflation.
+
+Anchor:
+  synonyms:
+    - anchor
+    - anchored
+  description: References to anchoring expectations, such as inflation expectations.
+
+"Good Afternoon":
+  synonyms:
+    - good afternoon
+  description: The introductory greeting “Good afternoon” from the chair.

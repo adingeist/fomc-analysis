@@ -1,0 +1,64 @@
+##
+# This file describes the project metadata and dependencies for the
+# fomc_analysis package.  It uses the PEP 621 [project] table to
+# declare the package name, version, description, authorship and
+# required Python version.  The dependency list enumerates all
+# external packages needed to run the toolkit.  When installing the
+# project with `uv pip install -e .`, the dependencies listed here
+# will automatically be installed into your virtual environment.
+#
+# For more information on the pyproject.toml format see:
+# https://peps.python.org/pep-0621/ and
+# https://peps.python.org/pep-0518/
+
+[project]
+name = "fomc-analysis"
+version = "0.1.0"
+description = "Tools for analysing FOMC press conference transcripts and comparing phrase usage with Kalshi event contracts."
+authors = [
+  { name="FOMC Analysis Contributors", email="research@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+keywords = ["fomc", "federal reserve", "kalshi", "press conference", "financial markets", "machine learning"]
+license = { text = "MIT" }
+
+# Define runtime dependencies.  These packages are installed when the
+# project is installed.  The versions declared here are intentionally
+# left unpinned to allow uv to pick appropriate compatible versions.
+# If you need repeatable builds, you can pin versions via uv's
+# built-in lock functionality (see uv documentation).
+dependencies = [
+  "pandas",
+  "numpy",
+  "pymupdf",
+  "scikit-learn",
+  "scipy",
+  "matplotlib",
+  "PyYAML",
+  "requests",
+  "tqdm",
+  "bs4>=0.0.2",
+  "pydantic-settings",
+]
+
+[project.optional-dependencies]
+# Development extras can be installed with
+# `uv pip install -e .[dev]`.  They include tools for linting,
+# testing and documentation.  Feel free to add more as your
+# workflow requires.
+dev = [
+  "pytest",
+  "black",
+  "flake8",
+  "mypy",
+]
+
+[build-system]
+# uv respects the PEP 517 build interface.  The 'requires' section
+# describes the minimal build tools needed to install this project.
+# We depend on setuptools and wheel for source distribution and
+# binary wheel creation.  uv will automatically satisfy these when
+# building the package.  You can leave this section unchanged.
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
