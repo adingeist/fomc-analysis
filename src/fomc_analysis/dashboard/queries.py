@@ -61,7 +61,8 @@ class DashboardRepository:
         runs = self._run_query(stmt)
         return _to_dataframe(
             {
-                "run_id": run.run_id,
+                "dataset_run_id": run.id,
+                "run_identifier": run.run_id,
                 "dataset_slug": run.dataset_slug,
                 "dataset_type": run.dataset_type,
                 "run_timestamp": run.run_timestamp,
@@ -71,8 +72,12 @@ class DashboardRepository:
             for run in runs
         )
 
-    def get_dataset_run(self, run_id: str) -> models.DatasetRun | None:
-        stmt = select(models.DatasetRun).where(models.DatasetRun.run_id == run_id)
+    def get_dataset_run(self, dataset_run_id: str) -> models.DatasetRun | None:
+        stmt = select(models.DatasetRun).where(models.DatasetRun.id == dataset_run_id)
+        runs = self._run_query(stmt)
+        if runs:
+            return runs[0]
+        stmt = select(models.DatasetRun).where(models.DatasetRun.run_id == dataset_run_id)
         runs = self._run_query(stmt)
         return runs[0] if runs else None
 
@@ -96,7 +101,7 @@ class DashboardRepository:
     def get_horizon_metrics(self, run_id: str) -> pd.DataFrame:
         stmt = select(models.HorizonMetrics).where(models.HorizonMetrics.dataset_run_id == run_id)
         rows = self._run_query(stmt)
-        return _to_dataframe(
+        df = _to_dataframe(
             {
                 "horizon_days": row.horizon_days,
                 "total_predictions": row.total_predictions,
@@ -112,12 +117,15 @@ class DashboardRepository:
                 "brier_score": row.brier_score,
             }
             for row in rows
-        ).sort_values(by="horizon_days", ascending=True)
+        )
+        if df.empty:
+            return df
+        return df.sort_values(by="horizon_days", ascending=True)
 
     def get_predictions(self, run_id: str) -> pd.DataFrame:
         stmt = select(models.Prediction).where(models.Prediction.dataset_run_id == run_id)
         rows = self._run_query(stmt)
-        return _to_dataframe(
+        df = _to_dataframe(
             {
                 "meeting_date": row.meeting_date,
                 "prediction_date": row.prediction_date,
@@ -134,12 +142,15 @@ class DashboardRepository:
                 "correct": row.correct,
             }
             for row in rows
-        ).sort_values(by=["meeting_date", "contract", "prediction_date"], ascending=True)
+        )
+        if df.empty:
+            return df
+        return df.sort_values(by=["meeting_date", "contract", "prediction_date"], ascending=True)
 
     def get_trades(self, run_id: str) -> pd.DataFrame:
         stmt = select(models.Trade).where(models.Trade.dataset_run_id == run_id)
         rows = self._run_query(stmt)
-        return _to_dataframe(
+        df = _to_dataframe(
             {
                 "meeting_date": row.meeting_date,
                 "prediction_date": row.prediction_date,
@@ -154,12 +165,15 @@ class DashboardRepository:
                 "roi": row.roi,
             }
             for row in rows
-        ).sort_values(by=["meeting_date", "prediction_date", "contract"], ascending=True)
+        )
+        if df.empty:
+            return df
+        return df.sort_values(by=["meeting_date", "prediction_date", "contract"], ascending=True)
 
     def get_grid_search_results(self, run_id: str) -> pd.DataFrame:
         stmt = select(models.GridSearchResult).where(models.GridSearchResult.dataset_run_id == run_id)
         rows = self._run_query(stmt)
-        return _to_dataframe(
+        df = _to_dataframe(
             {
                 "total_pnl": row.total_pnl,
                 "roi": row.roi,
@@ -177,5 +191,7 @@ class DashboardRepository:
                 "no_edge_threshold": row.no_edge_threshold,
             }
             for row in rows
-        ).sort_values(by="roi", ascending=False)
-
+        )
+        if df.empty:
+            return df
+        return df.sort_values(by="roi", ascending=False)
