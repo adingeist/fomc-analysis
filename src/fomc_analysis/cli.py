@@ -1126,8 +1126,8 @@ def export_kalshi_contracts(
 @click.option(
     "--yes-edge-threshold",
     type=float,
-    default=0.20,
-    help="Edge threshold for YES trades (default: 0.20).",
+    default=0.22,
+    help="Edge threshold for YES trades (default: 0.22).",
 )
 @click.option(
     "--no-edge-threshold",
@@ -1150,14 +1150,14 @@ def export_kalshi_contracts(
 @click.option(
     "--position-size-pct",
     type=float,
-    default=0.05,
-    help="Fraction of capital per trade (default: 0.05 = 5%).",
+    default=0.03,
+    help="Fraction of capital per trade (default: 0.03 = 3%).",
 )
 @click.option(
     "--yes-position-size-pct",
     type=float,
-    default=0.04,
-    help="Override position size fraction for YES trades (default: 0.04).",
+    default=0.03,
+    help="Override position size fraction for YES trades (default: 0.03).",
 )
 @click.option(
     "--no-position-size-pct",
@@ -1192,8 +1192,8 @@ def export_kalshi_contracts(
 @click.option(
     "--slippage",
     type=float,
-    default=0.01,
-    help="Slippage applied to entry price (price units, e.g., 0.01 = 1 cent).",
+    default=0.02,
+    help="Slippage applied to entry price (price units, e.g., 0.02 = 2 cents).",
 )
 @click.option(
     "--train-window-size",

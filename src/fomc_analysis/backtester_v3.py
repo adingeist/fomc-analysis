@@ -265,13 +265,13 @@ class TimeHorizonBacktester:
         Days before meeting to make predictions
     edge_threshold : float, default=0.12
         Minimum edge required to trade (used when side-specific thresholds unset)
-    position_size_pct : float, default=0.05
+    position_size_pct : float, default=0.03
         Fraction of capital to risk per trade (used unless side-specific sizing provided)
     fee_rate : float, default=0.07
         Kalshi fee rate (7% on profits)
     transaction_cost_rate : float, default=0.01
         Additional round-trip trading cost as a fraction of position size
-    slippage : float, default=0.01
+    slippage : float, default=0.02
         Slippage applied against the entry price (price units, e.g., 0.01 = 1¢)
     max_position_size : Optional[float], default=1500.0
         Upper bound on dollars allocated per trade
@@ -293,19 +293,19 @@ class TimeHorizonBacktester:
         historical_prices: pd.DataFrame,
         horizons: List[int] = None,
         edge_threshold: float = 0.12,
-        position_size_pct: float = 0.05,
+        position_size_pct: float = 0.03,
         fee_rate: float = 0.07,
         transaction_cost_rate: float = 0.01,
-        slippage: float = 0.01,
+        slippage: float = 0.02,
         max_position_size: Optional[float] = 1500.0,
         train_window_size: Optional[int] = 12,
         test_start_date: Optional[str] = "2022-01-01",
         min_train_window: int = 5,
         min_yes_probability: float = 0.65,
         max_no_probability: float = 0.35,
-        yes_edge_threshold: Optional[float] = 0.20,
+        yes_edge_threshold: Optional[float] = 0.22,
         no_edge_threshold: Optional[float] = 0.08,
-        yes_position_size_pct: Optional[float] = 0.04,
+        yes_position_size_pct: Optional[float] = 0.03,
         no_position_size_pct: Optional[float] = 0.03,
     ):
         self.outcomes = outcomes.sort_values("meeting_date")

@@ -718,6 +718,26 @@ For each event at time `t`:
 - `results/backtest/backtest_results.json` – Full trade log
 - `results/backtest/equity_curve.csv` – Capital over time
 
+**Stress-Test the Parameters:**
+```bash
+uv run python examples/backtest_v3_stress.py \
+  --contract-words data/kalshi_analysis/contract_words.json \
+  --slippage-grid 0.01,0.02,0.03 \
+  --transaction-cost-grid 0.01,0.02,0.03 \
+  --max-position-grid 750,1000,1250 \
+  --train-window-grid 9,12,15 \
+  --test-start-grid 2021-01-01,2022-01-01
+```
+This script fetches Kalshi outcomes once, evaluates each combination, and writes the ranked grid to `results/backtest_v3/grid_search.csv` so you can pick parameters that survive harsher frictions before going live or building dashboards.
+
+**Frozen Default Configuration (from `results/backtest_v3/grid_search.csv`):**
+- `slippage=0.02`, `transaction_cost=0.01`
+- `max_position_size=$1,500`, `position_size_pct=0.03`, `yes/no position size pct=0.03`
+- `yes_edge_threshold=0.22`, `no_edge_threshold=0.08`, `edge_threshold=0.12`
+- `train_window_size=12`, `test_start_date=2022-01-01`, `min_yes_prob=0.65`, `max_no_prob=0.35`
+
+All CLI / script defaults now reflect this “frozen” setup. If you decide to explore alternative risk envelopes, override the corresponding flags explicitly.
+
 **Metrics:**
 - `roi`: Return on investment
 - `sharpe`: Sharpe ratio (annualized)

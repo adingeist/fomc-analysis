@@ -480,8 +480,8 @@ def main():
     parser.add_argument(
         "--yes-edge-threshold",
         type=float,
-        default=0.20,
-        help="Edge requirement for YES trades (default: 0.20)"
+        default=0.22,
+        help="Edge requirement for YES trades (default: 0.22)"
     )
     parser.add_argument(
         "--no-edge-threshold",
@@ -492,14 +492,14 @@ def main():
     parser.add_argument(
         "--position-size",
         type=float,
-        default=0.05,
-        help="Position size as fraction of capital (default: 0.05)"
+        default=0.03,
+        help="Position size as fraction of capital (default: 0.03)"
     )
     parser.add_argument(
         "--yes-position-size",
         type=float,
-        default=0.04,
-        help="Position size fraction override for YES trades (default: 0.04)"
+        default=0.03,
+        help="Position size fraction override for YES trades (default: 0.03)"
     )
     parser.add_argument(
         "--no-position-size",
@@ -582,8 +582,8 @@ def main():
     parser.add_argument(
         "--slippage",
         type=float,
-        default=0.01,
-        help="Slippage applied to entry price (price units, default: 0.01)"
+        default=0.02,
+        help="Slippage applied to entry price (price units, default: 0.02)"
     )
     parser.add_argument(
         "--train-window",
