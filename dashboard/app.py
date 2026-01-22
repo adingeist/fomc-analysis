@@ -600,7 +600,11 @@ else:
 
         if not predictions_df.empty:
             df = predictions_df.copy()
-            df["edge_abs"] = df["edge"].fillna(0).abs()
+            if "edge" in df.columns:
+                df["edge"] = pd.to_numeric(df["edge"], errors="coerce")
+            else:
+                df["edge"] = 0.0
+            df["edge_abs"] = df["edge"].fillna(0.0).abs()
             df = df[df["edge_abs"] >= min_edge]
             df = df.sort_values("edge_abs", ascending=False).drop(columns=["edge_abs"])
             st.dataframe(df, hide_index=True, width='stretch')

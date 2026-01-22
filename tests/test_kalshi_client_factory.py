@@ -96,11 +96,14 @@ def test_sdk_adapter_close(monkeypatch):
         def release(self):
             self.released = True
 
+    captured_kwargs = {}
+
     class DummyMarketApi:
         def __init__(self, client):
             self.client = client
 
         async def get_markets_without_preload_content(self, **kwargs):
+            captured_kwargs.update(kwargs)
             return DummyResponse({"markets": []})
 
         async def get_series(self, **kwargs):
@@ -122,8 +125,9 @@ def test_sdk_adapter_close(monkeypatch):
     monkeypatch.setattr(factory, "EventsApi", DummyEventsApi)
 
     adapter = factory.KalshiSdkAdapter()
-    adapter.get_markets()
+    adapter.get_markets(tickers=["ABC", "DEF"])
     adapter.get_event("foo")
     adapter.get_series("bar")
     adapter.close()
     assert dummy_sdk.closed
+    assert captured_kwargs.get("tickers") == "ABC,DEF"

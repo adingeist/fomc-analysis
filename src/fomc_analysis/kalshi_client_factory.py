@@ -141,13 +141,19 @@ class KalshiSdkAdapter:
         event_ticker: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 200,
+        tickers: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
+        if tickers:
+            tickers_param = ",".join(tickers)
+        else:
+            tickers_param = None
         payload = self._await_json(
             self._market_api.get_markets_without_preload_content(
                 series_ticker=series_ticker,
                 event_ticker=event_ticker,
                 status=status,
                 limit=limit,
+                tickers=tickers_param,
             )
         )
         if isinstance(payload, dict):

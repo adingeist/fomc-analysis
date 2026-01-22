@@ -8,12 +8,14 @@ prediction contracts using the Kalshi SDK.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass
 from typing import Optional
 
-from kalshi_python_async import KalshiClient
+from ..kalshi_client_factory import KalshiSdkAdapter
 
-from ..kalshi_sdk import create_kalshi_sdk_client
+_TICKER_BATCH_SIZE = 50
+_DEFAULT_MARKET_LIMIT = 1000
 
 
 @dataclass
@@ -74,79 +76,133 @@ class MarketPrice:
         return float(price_value) / 100.0
 
 
+def _chunked(items: list[str], chunk_size: int):
+    """Yield successive chunks from a list."""
+    for i in range(0, len(items), chunk_size):
+        yield items[i : i + chunk_size]
+
+
 class MarketDataService:
     """Service for fetching live market data from Kalshi."""
 
-    def __init__(self, client: Optional[KalshiClient] = None):
+    def __init__(self, client: Optional[object] = None):
         """Initialize the market data service.
 
         Args:
-            client: Optional KalshiClient instance. If not provided,
-                   a new client will be created using credentials from settings.
+            client: Optional Kalshi SDK adapter instance. If not provided,
+                a new adapter will be created using credentials from settings.
         """
-        self.client = client or create_kalshi_sdk_client()
+        self.client = client or KalshiSdkAdapter()
+        self._owns_client = client is None
+
+    def __enter__(self) -> "MarketDataService":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    async def __aenter__(self) -> "MarketDataService":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.aclose()
+
+    def close(self) -> None:
+        """Close the underlying client if this service created it."""
+        if not self._owns_client:
+            return
+        close_method = getattr(self.client, "close", None)
+        if not callable(close_method):
+            return
+        result = close_method()
+        if inspect.isawaitable(result):
+            asyncio.run(result)
+
+    async def aclose(self) -> None:
+        """Async variant of close for use with async context managers."""
+        if not self._owns_client:
+            return
+        close_method = getattr(self.client, "close", None)
+        if not callable(close_method):
+            return
+        result = close_method()
+        if inspect.isawaitable(result):
+            await result
 
     async def get_market_price(self, ticker: str) -> MarketPrice:
-        """Fetch live price data for a single market.
-
-        Args:
-            ticker: Market ticker (e.g., "KXFEDMENTION-26JAN-INFLATION40")
-
-        Returns:
-            MarketPrice object with current pricing data
-        """
-        market_data = await self.client.get_market(ticker=ticker)
-        return MarketPrice.from_api_response(market_data.market.model_dump())
+        """Fetch live price data for a single market."""
+        return self.get_market_price_sync(ticker)
 
     async def get_markets_prices(
         self, event_ticker: Optional[str] = None, tickers: Optional[list[str]] = None
     ) -> list[MarketPrice]:
-        """Fetch live prices for multiple markets.
+        """Fetch live prices for multiple markets."""
+        return self.get_markets_prices_sync(event_ticker, tickers)
 
-        Args:
-            event_ticker: Filter by event ticker (e.g., "KXFEDMENTION-26JAN")
-            tickers: List of specific tickers to fetch
+    def _call_get_markets(self, **kwargs):
+        try:
+            return self.client.get_markets(**kwargs)
+        except TypeError:
+            if "tickers" in kwargs:
+                kwargs.pop("tickers")
+                return self.client.get_markets(**kwargs)
+            raise
 
-        Returns:
-            List of MarketPrice objects
-        """
-        params = {"status": "open", "limit": 1000}
+    def _normalize_markets(
+        self, response, expected_tickers: Optional[list[str]] = None
+    ) -> list[dict]:
+        if isinstance(response, dict):
+            response = response.get("markets", [])
+        if not isinstance(response, list):
+            return []
+        desired = set(expected_tickers) if expected_tickers else None
+        normalized: list[dict] = []
+        for market in response:
+            if hasattr(market, "model_dump"):
+                market_data = market.model_dump()
+            elif isinstance(market, dict):
+                market_data = market
+            else:
+                continue
+            if desired and market_data.get("ticker") not in desired:
+                continue
+            normalized.append(market_data)
+        return normalized
 
+    def _fetch_markets_data(
+        self, event_ticker: Optional[str], tickers: Optional[list[str]]
+    ) -> list[dict]:
+        limit = _DEFAULT_MARKET_LIMIT
+        if tickers:
+            limit = max(len(tickers), 1)
+        params = {"status": "open", "limit": limit}
         if event_ticker:
             params["event_ticker"] = event_ticker
         if tickers:
-            params["tickers"] = ",".join(tickers)
-
-        markets_response = await self.client.get_markets(**params)
-        return [
-            MarketPrice.from_api_response(market.model_dump())
-            for market in markets_response.markets
-        ]
+            params["tickers"] = tickers
+        response = self._call_get_markets(**params)
+        return self._normalize_markets(response, tickers)
 
     def get_market_price_sync(self, ticker: str) -> MarketPrice:
-        """Synchronous wrapper for getting market price.
-
-        Args:
-            ticker: Market ticker
-
-        Returns:
-            MarketPrice object
-        """
-        return asyncio.run(self.get_market_price(ticker))
+        """Fetch a single market price synchronously."""
+        prices = self.get_markets_prices_sync(tickers=[ticker])
+        return prices[0] if prices else MarketPrice(ticker=ticker)
 
     def get_markets_prices_sync(
         self, event_ticker: Optional[str] = None, tickers: Optional[list[str]] = None
     ) -> list[MarketPrice]:
-        """Synchronous wrapper for getting multiple market prices.
+        """Fetch multiple market prices synchronously."""
+        if tickers:
+            price_data: list[MarketPrice] = []
+            for chunk in _chunked(tickers, _TICKER_BATCH_SIZE):
+                markets = self._fetch_markets_data(event_ticker, chunk)
+                price_data.extend(
+                    MarketPrice.from_api_response(market) for market in markets
+                )
+            return price_data
 
-        Args:
-            event_ticker: Filter by event ticker
-            tickers: List of specific tickers to fetch
-
-        Returns:
-            List of MarketPrice objects
-        """
-        return asyncio.run(self.get_markets_prices(event_ticker, tickers))
+        markets = self._fetch_markets_data(event_ticker, None)
+        return [MarketPrice.from_api_response(market) for market in markets]
 
 
 def fetch_live_prices_for_predictions(predictions_df) -> dict[str, MarketPrice]:
@@ -166,9 +222,9 @@ def fetch_live_prices_for_predictions(predictions_df) -> dict[str, MarketPrice]:
         return {}
 
     try:
-        service = MarketDataService()
-        prices = service.get_markets_prices_sync(tickers=unique_tickers)
-        return {price.ticker: price for price in prices}
+        with MarketDataService() as service:
+            prices = service.get_markets_prices_sync(tickers=unique_tickers)
+            return {price.ticker: price for price in prices}
     except Exception as e:
         print(f"Error fetching live prices: {e}")
         return {}
