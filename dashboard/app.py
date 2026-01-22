@@ -353,7 +353,7 @@ if is_live_run:
         # Refresh button
         col1, col2, col3 = st.columns([2, 1, 1])
         with col3:
-            if st.button("🔄 Refresh Predictions", use_container_width=True):
+            if st.button("🔄 Refresh Predictions", width='stretch'):
                 refresh_predictions()
 
         if predictions_df.empty:
@@ -505,7 +505,7 @@ if is_live_run:
                         return [""] * len(row)
 
                 styled_df = display_df.style.apply(highlight_recommendation, axis=1)
-                st.dataframe(styled_df, hide_index=True, use_container_width=True)
+                st.dataframe(styled_df, hide_index=True, width='stretch')
 
                 # Show detailed view for top opportunities
                 st.subheader("🎯 Top Opportunities")
@@ -592,7 +592,7 @@ else:
         horizon_df = repo.get_horizon_metrics(selected_run_id)
         if not horizon_df.empty:
             st.subheader("Performance by Horizon")
-            st.dataframe(horizon_df, hide_index=True, use_container_width=True)
+            st.dataframe(horizon_df, hide_index=True, width='stretch')
 
     with main_tabs[1]:
         st.header("🎯 Predictions")
@@ -603,7 +603,7 @@ else:
             df["edge_abs"] = df["edge"].fillna(0).abs()
             df = df[df["edge_abs"] >= min_edge]
             df = df.sort_values("edge_abs", ascending=False).drop(columns=["edge_abs"])
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.dataframe(df, hide_index=True, width='stretch')
         else:
             st.info("No predictions available for this run.")
 
@@ -611,7 +611,7 @@ else:
         st.header("💼 Trades")
 
         if not trades_df.empty:
-            st.dataframe(trades_df, hide_index=True, use_container_width=True)
+            st.dataframe(trades_df, hide_index=True, width='stretch')
 
             trade_cols = st.columns(3)
             total_pnl = trades_df["pnl"].fillna(0).sum()
@@ -628,7 +628,7 @@ else:
         st.header("🔍 Grid Search Results")
 
         if not grid_df.empty:
-            st.dataframe(grid_df, hide_index=True, use_container_width=True)
+            st.dataframe(grid_df, hide_index=True, width='stretch')
         else:
             st.info("No grid search results for this dataset run.")
 
@@ -763,4 +763,4 @@ with contract_type_tabs[1]:
         "Recommendation": ["BUY YES", "BUY YES", "BUY YES", "BUY NO", "HOLD"],
     })
 
-    st.dataframe(mock_data, hide_index=True, use_container_width=True)
+    st.dataframe(mock_data, hide_index=True, width='stretch')
