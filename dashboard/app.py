@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from fomc_analysis.dashboard import DashboardRepository
+from fomc_analysis.dashboard import DashboardRepository, fetch_live_prices_for_predictions
 
 
 st.set_page_config(
@@ -75,6 +75,104 @@ def get_trade_recommendation(
         return "BUY NO", "buy-no"
 
     return "HOLD", "hold"
+
+
+def display_live_price_card(ticker: str, live_price_data: dict) -> None:
+    """Display a live price card with bid/ask spread and volume."""
+    if ticker not in live_price_data:
+        st.warning(f"⚠️ No live price data available for {ticker}")
+        return
+
+    price = live_price_data[ticker]
+
+    # Create columns for price display
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "Last Price",
+            f"{price.last_price*100:.1f}¢" if price.last_price else "–",
+            delta=None,
+        )
+
+    with col2:
+        bid_ask_spread = None
+        if price.yes_bid is not None and price.yes_ask is not None:
+            bid_ask_spread = (price.yes_ask - price.yes_bid) * 100
+        st.metric(
+            "Bid/Ask Spread",
+            f"{bid_ask_spread:.1f}¢" if bid_ask_spread else "–",
+            delta=None,
+        )
+
+    with col3:
+        st.metric(
+            "24h Volume",
+            f"{price.volume_24h:,}" if price.volume_24h else "–",
+            delta=None,
+        )
+
+    with col4:
+        st.metric(
+            "Open Interest",
+            f"{price.open_interest:,}" if price.open_interest else "–",
+            delta=None,
+        )
+
+    # Display bid/ask details
+    price_cols = st.columns(2)
+    with price_cols[0]:
+        st.markdown(f"**YES Bid:** {price.yes_bid*100:.1f}¢" if price.yes_bid else "**YES Bid:** –")
+        st.markdown(f"**YES Ask:** {price.yes_ask*100:.1f}¢" if price.yes_ask else "**YES Ask:** –")
+
+    with price_cols[1]:
+        st.markdown(f"**NO Bid:** {price.no_bid*100:.1f}¢" if price.no_bid else "**NO Bid:** –")
+        st.markdown(f"**NO Ask:** {price.no_ask*100:.1f}¢" if price.no_ask else "**NO Ask:** –")
+
+
+def display_live_prices_section(predictions_df: pd.DataFrame) -> None:
+    """Display live prices for all predictions in an expandable section."""
+    st.subheader("💹 Live Market Prices")
+
+    with st.spinner("Fetching live price data from Kalshi..."):
+        try:
+            live_prices = fetch_live_prices_for_predictions(predictions_df)
+
+            if not live_prices:
+                st.warning("⚠️ Could not fetch live price data. Check your Kalshi API credentials.")
+                return
+
+            st.success(f"✓ Loaded live prices for {len(live_prices)} markets")
+
+            # Group by meeting date
+            if "meeting_date" in predictions_df.columns:
+                meeting_dates = sorted(predictions_df["meeting_date"].dropna().unique())
+
+                for meeting_date in meeting_dates:
+                    meeting_predictions = predictions_df[
+                        predictions_df["meeting_date"] == meeting_date
+                    ]
+
+                    with st.expander(f"📅 {meeting_date} ({len(meeting_predictions)} markets)", expanded=True):
+                        for idx, row in meeting_predictions.iterrows():
+                            ticker = row.get("ticker")
+                            contract = row.get("contract", ticker)
+
+                            st.markdown(f"### {contract}")
+                            display_live_price_card(ticker, live_prices)
+                            st.divider()
+            else:
+                # If no meeting date, just display all
+                for idx, row in predictions_df.iterrows():
+                    ticker = row.get("ticker")
+                    contract = row.get("contract", ticker)
+
+                    with st.expander(f"{contract}", expanded=False):
+                        display_live_price_card(ticker, live_prices)
+
+        except Exception as e:
+            st.error(f"❌ Error fetching live prices: {str(e)}")
+            st.info("💡 Make sure your Kalshi API credentials are configured in the .env file.")
 
 
 def style_prediction_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -211,8 +309,14 @@ selected_run_id = runs_df.loc[runs_df["label"] == selected_run_label, "dataset_r
 metadata = repo.get_dataset_run(selected_run_id)
 
 # Main header
-st.title("📊 FOMC Trading Predictions")
-st.caption("AI-powered FOMC mention predictions with actionable trading signals")
+st.title("📊 Word Mention Prediction Markets")
+st.caption("AI-powered word mention predictions for earnings calls and FOMC meetings")
+
+# Contract type selector (top-level tabs)
+contract_type_tabs = st.tabs(["💼 FOMC Speaker Words", "📞 Earnings Call Words (Coming Soon)"])
+
+# Store the active contract type for later use
+active_contract_type = "FOMC"  # Will be "Earnings" when that tab is active
 
 # Load data
 predictions_df = repo.get_predictions(selected_run_id)
@@ -226,11 +330,20 @@ is_live_run = bool(
     and "upcoming" in metadata.dataset_slug
 ) or (not predictions_df.empty and predictions_df["prediction_kind"].eq("live").all())
 
-# Create main tabs
-if is_live_run:
-    main_tabs = st.tabs(["🎯 Predictions", "📈 Training Data", "⚙️ Settings"])
-else:
-    main_tabs = st.tabs(["📈 Backtest Results", "🎯 Predictions", "💼 Trades", "🔍 Grid Search"])
+# FOMC Contract Type Tab (Active)
+with contract_type_tabs[0]:
+    st.subheader("Federal Reserve FOMC Press Conference Word Mentions")
+    st.markdown("""
+    Track and predict word mentions in Federal Reserve FOMC press conferences.
+    Our AI model analyzes historical transcripts to predict which words Jerome Powell
+    and other Fed speakers are likely to mention.
+    """)
+
+    # Create main tabs for FOMC
+    if is_live_run:
+        main_tabs = st.tabs(["🎯 Predictions", "📈 Training Data", "⚙️ Settings"])
+    else:
+        main_tabs = st.tabs(["📈 Backtest Results", "🎯 Predictions", "💼 Trades", "🔍 Grid Search"])
 
 # PREDICTIONS TAB (Main view for live runs)
 if is_live_run:
@@ -246,6 +359,11 @@ if is_live_run:
         if predictions_df.empty:
             st.info("📭 No live predictions available. Click 'Refresh Predictions' to generate new ones.")
         else:
+            # Add live prices section at the top
+            st.divider()
+            display_live_prices_section(predictions_df)
+            st.divider()
+
             # Get predictions with recommendations
             df = predictions_df.copy()
 
@@ -513,3 +631,136 @@ else:
             st.dataframe(grid_df, hide_index=True, use_container_width=True)
         else:
             st.info("No grid search results for this dataset run.")
+
+# Earnings Call Words Tab (Coming Soon)
+with contract_type_tabs[1]:
+    st.subheader("📞 Earnings Call Word Mention Predictions")
+
+    # Coming soon banner
+    st.info("🚧 **Feature Under Development** 🚧")
+
+    st.markdown("""
+    ### Coming Soon: Earnings Call Word Predictions
+
+    We're expanding our word mention prediction capabilities to include **corporate earnings calls**.
+    This will allow you to predict and trade on word mentions during quarterly earnings calls
+    from major public companies.
+
+    #### 📊 How It Will Work
+
+    Similar to our FOMC predictions, we'll analyze historical earnings call transcripts to predict:
+    - **CEO & CFO Keywords**: Track mentions of strategic terms (AI, growth, innovation, etc.)
+    - **Financial Terminology**: Revenue, profit, guidance, headwinds, tailwinds
+    - **Industry-Specific Terms**: Sector-relevant buzzwords and metrics
+    - **Sentiment Indicators**: Cautious, optimistic, challenging language patterns
+
+    #### 🔬 Model Architecture & Differences
+
+    While the core prediction methodology is similar to FOMC analysis, earnings call predictions
+    will incorporate several unique variables:
+
+    **Similarities to FOMC:**
+    - 📝 **Transcript-based training**: Both analyze speaker transcripts
+    - 🎯 **Word/phrase counting**: Same fundamental counting methodology
+    - 📊 **Bayesian modeling**: Beta-binomial or similar statistical approach
+    - 🔄 **Recency weighting**: Recent calls matter more than older ones
+
+    **Key Differences:**
+
+    1. **📅 Seasonality Effects**
+       - Q1, Q2, Q3, Q4 patterns differ significantly
+       - Holiday quarter (Q4) typically has different language patterns
+       - Year-over-year comparisons are more relevant than sequential quarters
+
+    2. **📈 Quarter-Specific Variables**
+       - Guidance language differs between Q1-Q3 vs Q4
+       - End-of-year calls include more forward-looking statements
+       - Tax season (Q1) has unique terminology
+
+    3. **🏢 Company-Specific Patterns**
+       - Each company has unique communication styles
+       - CEO/CFO changes affect language patterns
+       - Industry context matters (tech vs retail vs finance)
+
+    4. **📊 Performance-Dependent Language**
+       - Word usage correlates with earnings beats/misses
+       - Defensive language appears during downturns
+       - Bullish terms increase with strong performance
+
+    5. **🌍 Macro Events**
+       - Economic conditions affect earnings language
+       - Regulatory changes drive specific terminology
+       - Industry disruption creates new buzzwords
+
+    #### 🎯 Prediction Model Adaptations
+
+    To account for these differences, the earnings call prediction model will include:
+
+    - **Quarter indicators**: One-hot encoding for Q1/Q2/Q3/Q4
+    - **Year-over-year features**: Compare same quarter across years
+    - **Company embeddings**: Learn company-specific patterns
+    - **Performance indicators**: Incorporate stock price movements
+    - **Macro sentiment**: External economic indicator integration
+    - **Sector context**: Industry-specific normalization
+
+    #### 🛠️ Data Requirements
+
+    - **Transcript Sources**: Public earnings call transcripts (10-Q related)
+    - **Historical Data**: At least 2-3 years of quarterly calls per company
+    - **Market Coverage**: Initially focusing on S&P 500 companies
+    - **Kalshi Markets**: New earnings-related prediction markets
+
+    #### 📅 Timeline
+
+    - **Phase 1**: Data collection & preprocessing *(4-6 weeks)*
+    - **Phase 2**: Model development & backtesting *(6-8 weeks)*
+    - **Phase 3**: Kalshi market integration *(2-4 weeks)*
+    - **Phase 4**: Dashboard integration & live predictions *(2-3 weeks)*
+
+    #### 💡 Why This Matters
+
+    Earnings calls are **highly predictable** in many ways, yet markets often misprice
+    the probability of specific word mentions. By combining:
+
+    - Historical transcript analysis
+    - Company-specific patterns
+    - Seasonal adjustments
+    - Performance correlations
+
+    We can identify mispriced contracts and generate alpha, similar to our FOMC strategy.
+
+    #### 🔔 Stay Updated
+
+    This feature is actively in development. Check back soon for updates, or reach out
+    if you'd like to contribute to the earnings call prediction model development.
+
+    ---
+
+    **Questions or suggestions?** Open an issue on our GitHub repository!
+    """)
+
+    # Visual mockup section
+    st.divider()
+    st.subheader("📸 Preview: What the Earnings Tab Will Look Like")
+
+    # Mock example
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Next Earnings Date", "Jan 28, 2026")
+    with col2:
+        st.metric("Companies Covered", "150+")
+    with col3:
+        st.metric("Active Markets", "Coming Soon")
+
+    # Example prediction table (mock data)
+    st.markdown("**Example: Upcoming Apple (AAPL) Q1 2026 Earnings Call Predictions**")
+
+    mock_data = pd.DataFrame({
+        "Word/Phrase": ["AI", "Services Growth", "iPhone", "Vision Pro", "China"],
+        "Predicted Probability": ["92%", "78%", "95%", "45%", "62%"],
+        "Market Price": ["85%", "72%", "90%", "55%", "60%"],
+        "Edge": ["+7%", "+6%", "+5%", "-10%", "+2%"],
+        "Recommendation": ["BUY YES", "BUY YES", "BUY YES", "BUY NO", "HOLD"],
+    })
+
+    st.dataframe(mock_data, hide_index=True, use_container_width=True)
