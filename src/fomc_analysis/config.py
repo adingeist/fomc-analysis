@@ -60,6 +60,12 @@ class Settings(BaseSettings):
         alias="KALSHI_BASE_URL",
     )
 
+    database_url: str = Field(
+        default="sqlite:///data/fomc_analysis.db",
+        description="SQLAlchemy connection string for persisting analytics artifacts",
+        alias="DATABASE_URL",
+    )
+
 
 # Global settings instance
 # Access via: from config import settings

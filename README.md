@@ -1051,9 +1051,15 @@ models/
 
 results/
 ├── backtest/
-│   ├── backtest_results.json  # Full trade log
-│   └── equity_curve.csv       # Equity over time
-└── mispricing_table.csv       # Contract-level profitability
+│   ├── backtest_results.json  # Legacy trade log (v2)
+│   └── equity_curve.csv       # Legacy equity over time
+├── backtest_v3/
+│   ├── backtest_results.json  # Full v3 snapshot (trades, predictions, metrics)
+│   ├── predictions.csv        # Flat table for analytics/DB ingestion
+│   ├── trades.csv             # Flat table for analytics/DB ingestion
+│   └── grid_search.csv        # Parameter sweep rankings
+└── upcoming_predictions/
+    └── predictions.csv        # Live signals for the upcoming meeting
 ```
 
 ### Versioning and Hashing
@@ -1061,6 +1067,20 @@ results/
 - **Variants:** Cache key includes prompt version, model, base phrases
 - **Features:** Deterministic given segments and contract mapping
 - **Models:** Include training data hash in metadata (TODO)
+
+### Structured Database Layer
+
+Backtest metrics, trades, grid-search rows, and live predictions can now be
+persisted inside a SQLite/Postgres database via Alembic migrations and
+SQLAlchemy models. See [docs/DATABASE.md](docs/DATABASE.md) for:
+
+- Schema diagrams + table descriptions
+- `alembic upgrade head` instructions (respects `DATABASE_URL`)
+- CLI loaders (`scripts/load_backtest_results.py`, `scripts/load_grid_search.py`,
+  `scripts/load_upcoming_predictions.py`)
+- Guidance on extending the schema to other dataset types (e.g., earnings)
+- Early design notes for future earnings call coverage live in
+  [docs/EARNINGS_PIPELINE_NOTES.md](docs/EARNINGS_PIPELINE_NOTES.md)
 
 ---
 
