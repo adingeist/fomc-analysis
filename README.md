@@ -1081,6 +1081,8 @@ SQLAlchemy models. See [docs/DATABASE.md](docs/DATABASE.md) for:
 - Guidance on extending the schema to other dataset types (e.g., earnings)
 - Early design notes for future earnings call coverage live in
   [docs/EARNINGS_PIPELINE_NOTES.md](docs/EARNINGS_PIPELINE_NOTES.md)
+- Streamlit dashboard setup instructions are in
+  [docs/DASHBOARD.md](docs/DASHBOARD.md)
 
 ---
 
