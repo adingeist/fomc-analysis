@@ -1120,19 +1120,31 @@ def export_kalshi_contracts(
 @click.option(
     "--edge-threshold",
     type=float,
-    default=0.10,
-    help="Minimum edge to trade (default: 0.10 = 10%).",
+    default=0.12,
+    help="Minimum edge to trade (default: 0.12 = 12%).",
+)
+@click.option(
+    "--yes-edge-threshold",
+    type=float,
+    default=0.20,
+    help="Edge threshold for YES trades (default: 0.20).",
+)
+@click.option(
+    "--no-edge-threshold",
+    type=float,
+    default=0.08,
+    help="Edge threshold for NO trades (default: 0.08).",
 )
 @click.option(
     "--min-yes-prob",
     type=float,
-    default=0.0,
+    default=0.65,
     help="Only take YES trades when model probability exceeds this value.",
 )
 @click.option(
     "--max-no-prob",
     type=float,
-    default=1.0,
+    default=0.35,
     help="Only take NO trades when model probability is below this value.",
 )
 @click.option(
@@ -1142,10 +1154,58 @@ def export_kalshi_contracts(
     help="Fraction of capital per trade (default: 0.05 = 5%).",
 )
 @click.option(
+    "--yes-position-size-pct",
+    type=float,
+    default=0.04,
+    help="Override position size fraction for YES trades (default: 0.04).",
+)
+@click.option(
+    "--no-position-size-pct",
+    type=float,
+    default=0.03,
+    help="Override position size fraction for NO trades (default: 0.03).",
+)
+@click.option(
+    "--max-position-size",
+    type=float,
+    default=1500.0,
+    help="Cap the absolute dollars deployed per trade (default: $1,500).",
+)
+@click.option(
     "--initial-capital",
     type=float,
     default=10000.0,
     help="Starting capital.",
+)
+@click.option(
+    "--fee-rate",
+    type=float,
+    default=0.07,
+    help="Kalshi fee rate on profits (default: 0.07).",
+)
+@click.option(
+    "--transaction-cost",
+    type=float,
+    default=0.01,
+    help="Additional per-trade transaction cost as fraction of position size.",
+)
+@click.option(
+    "--slippage",
+    type=float,
+    default=0.01,
+    help="Slippage applied to entry price (price units, e.g., 0.01 = 1 cent).",
+)
+@click.option(
+    "--train-window-size",
+    type=int,
+    default=12,
+    help="Rolling number of meetings to train on (default: 12).",
+)
+@click.option(
+    "--test-start-date",
+    type=str,
+    default="2022-01-01",
+    help="Start evaluating trades on/after this meeting date (YYYY-MM-DD).",
 )
 @click.option(
     "--output",
@@ -1164,8 +1224,18 @@ def backtest_v3(
     min_history: int,
     horizons: str,
     edge_threshold: float,
+    yes_edge_threshold: Optional[float],
+    no_edge_threshold: Optional[float],
     position_size_pct: float,
+    yes_position_size_pct: Optional[float],
+    no_position_size_pct: Optional[float],
+    max_position_size: Optional[float],
     initial_capital: float,
+    fee_rate: float,
+    transaction_cost: float,
+    slippage: float,
+    train_window_size: Optional[int],
+    test_start_date: Optional[str],
     min_yes_prob: float,
     max_no_prob: float,
     output: Path,
@@ -1257,8 +1327,18 @@ def backtest_v3(
             horizons=horizon_list,
             edge_threshold=edge_threshold,
             position_size_pct=position_size_pct,
+            fee_rate=fee_rate,
+            transaction_cost_rate=transaction_cost,
+            slippage=slippage,
+            max_position_size=max_position_size,
+            train_window_size=train_window_size,
+            test_start_date=test_start_date,
             min_yes_probability=min_yes_prob,
             max_no_probability=max_no_prob,
+            yes_edge_threshold=yes_edge_threshold,
+            no_edge_threshold=no_edge_threshold,
+            yes_position_size_pct=yes_position_size_pct,
+            no_position_size_pct=no_position_size_pct,
         )
 
         # Select model

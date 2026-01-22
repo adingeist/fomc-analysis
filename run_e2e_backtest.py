@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -137,30 +137,57 @@ def run_backtest(
     min_history: int,
     min_yes_prob: float,
     max_no_prob: float,
+    fee_rate: float,
+    transaction_cost: float,
+    slippage: float,
+    yes_edge_threshold: Optional[float] = None,
+    no_edge_threshold: Optional[float] = None,
+    yes_position_size: Optional[float] = None,
+    no_position_size: Optional[float] = None,
+    max_position_size: Optional[float] = None,
+    train_window: Optional[int] = None,
+    test_start_date: Optional[str] = None,
 ) -> bool:
     """Run backtest v3."""
-    return run_command(
-        [
-            "fomc-analysis",
-            "backtest-v3",
-            "--contract-words", "data/kalshi_analysis/contract_words.json",
-            "--segments-dir", "data/segments",
-            "--model", "beta",
-            "--alpha", str(alpha),
-            "--beta-prior", str(beta_prior),
-            "--half-life", str(half_life),
-            "--prior-strength", str(prior_strength),
-            "--min-history", str(min_history),
-            "--horizons", horizons,
-            "--edge-threshold", str(edge_threshold),
-            "--position-size-pct", str(position_size),
-            "--min-yes-prob", str(min_yes_prob),
-            "--max-no-prob", str(max_no_prob),
-            "--initial-capital", str(initial_capital),
-            "--output", "results/backtest_v3",
-        ],
-        "STEP 4: Running Backtest v3"
-    )
+    cmd = [
+        "fomc-analysis",
+        "backtest-v3",
+        "--contract-words", "data/kalshi_analysis/contract_words.json",
+        "--segments-dir", "data/segments",
+        "--model", "beta",
+        "--alpha", str(alpha),
+        "--beta-prior", str(beta_prior),
+        "--half-life", str(half_life),
+        "--prior-strength", str(prior_strength),
+        "--min-history", str(min_history),
+        "--horizons", horizons,
+        "--edge-threshold", str(edge_threshold),
+        "--position-size-pct", str(position_size),
+        "--min-yes-prob", str(min_yes_prob),
+        "--max-no-prob", str(max_no_prob),
+        "--initial-capital", str(initial_capital),
+        "--fee-rate", str(fee_rate),
+        "--transaction-cost", str(transaction_cost),
+        "--slippage", str(slippage),
+        "--output", "results/backtest_v3",
+    ]
+
+    if yes_edge_threshold is not None:
+        cmd.extend(["--yes-edge-threshold", str(yes_edge_threshold)])
+    if no_edge_threshold is not None:
+        cmd.extend(["--no-edge-threshold", str(no_edge_threshold)])
+    if yes_position_size is not None:
+        cmd.extend(["--yes-position-size-pct", str(yes_position_size)])
+    if no_position_size is not None:
+        cmd.extend(["--no-position-size-pct", str(no_position_size)])
+    if max_position_size is not None:
+        cmd.extend(["--max-position-size", str(max_position_size)])
+    if train_window is not None:
+        cmd.extend(["--train-window-size", str(train_window)])
+    if test_start_date:
+        cmd.extend(["--test-start-date", test_start_date])
+
+    return run_command(cmd, "STEP 4: Running Backtest v3")
 
 
 def run_upcoming_predictions(
@@ -447,14 +474,44 @@ def main():
     parser.add_argument(
         "--edge-threshold",
         type=float,
-        default=0.10,
-        help="Edge threshold for trading (default: 0.10)"
+        default=0.12,
+        help="Edge threshold for trading (default: 0.12)"
+    )
+    parser.add_argument(
+        "--yes-edge-threshold",
+        type=float,
+        default=0.20,
+        help="Edge requirement for YES trades (default: 0.20)"
+    )
+    parser.add_argument(
+        "--no-edge-threshold",
+        type=float,
+        default=0.08,
+        help="Edge requirement for NO trades (default: 0.08)"
     )
     parser.add_argument(
         "--position-size",
         type=float,
         default=0.05,
         help="Position size as fraction of capital (default: 0.05)"
+    )
+    parser.add_argument(
+        "--yes-position-size",
+        type=float,
+        default=0.04,
+        help="Position size fraction override for YES trades (default: 0.04)"
+    )
+    parser.add_argument(
+        "--no-position-size",
+        type=float,
+        default=0.03,
+        help="Position size fraction override for NO trades (default: 0.03)"
+    )
+    parser.add_argument(
+        "--max-position-size",
+        type=float,
+        default=1500.0,
+        help="Hard cap on dollars per trade (default: 1500)"
     )
     parser.add_argument(
         "--initial-capital",
@@ -509,6 +566,36 @@ def main():
         type=float,
         default=0.35,
         help="Only place NO trades when model probability is below this value (default: 0.35)"
+    )
+    parser.add_argument(
+        "--fee-rate",
+        type=float,
+        default=0.07,
+        help="Kalshi fee rate on profits (default: 0.07)"
+    )
+    parser.add_argument(
+        "--transaction-cost",
+        type=float,
+        default=0.01,
+        help="Additional transaction cost per trade as fraction of position size (default: 0.01)"
+    )
+    parser.add_argument(
+        "--slippage",
+        type=float,
+        default=0.01,
+        help="Slippage applied to entry price (price units, default: 0.01)"
+    )
+    parser.add_argument(
+        "--train-window",
+        type=int,
+        default=12,
+        help="Rolling number of meetings to use for training (default: 12)"
+    )
+    parser.add_argument(
+        "--test-start-date",
+        type=str,
+        default="2022-01-01",
+        help="Only score meetings on/after this date (YYYY-MM-DD, default: 2022-01-01)"
     )
     parser.add_argument(
         "--skip-fetch",
@@ -602,6 +689,16 @@ Configuration:
         args.model_min_history,
         args.min_yes_prob,
         args.max_no_prob,
+        args.fee_rate,
+        args.transaction_cost,
+        args.slippage,
+        args.yes_edge_threshold,
+        args.no_edge_threshold,
+        args.yes_position_size,
+        args.no_position_size,
+        args.max_position_size,
+        args.train_window,
+        args.test_start_date,
     ):
         print("\n✗ Pipeline failed at backtest")
         return 1

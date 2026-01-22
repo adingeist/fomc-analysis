@@ -27,6 +27,16 @@ SERIES_TICKER=${SERIES_TICKER:-KXFEDMENTION}
 INITIAL_CAPITAL=${INITIAL_CAPITAL:-10000}
 EDGE_THRESHOLD=${EDGE_THRESHOLD:-0.10}
 POSITION_SIZE=${POSITION_SIZE:-0.05}
+TRAIN_WINDOW=${TRAIN_WINDOW:-12}
+TEST_START_DATE=${TEST_START_DATE:-2022-01-01}
+FEE_RATE=${FEE_RATE:-0.07}
+TRANSACTION_COST=${TRANSACTION_COST:-0.01}
+SLIPPAGE=${SLIPPAGE:-0.01}
+MAX_POSITION_SIZE=${MAX_POSITION_SIZE:-1500}
+YES_EDGE_THRESHOLD=${YES_EDGE_THRESHOLD:-0.12}
+NO_EDGE_THRESHOLD=${NO_EDGE_THRESHOLD:-0.08}
+YES_POSITION_SIZE=${YES_POSITION_SIZE:-0.04}
+NO_POSITION_SIZE=${NO_POSITION_SIZE:-0.03}
 
 echo ""
 echo "Configuration:"
@@ -35,6 +45,14 @@ echo "  Series ticker: $SERIES_TICKER"
 echo "  Initial capital: \$$INITIAL_CAPITAL"
 echo "  Edge threshold: ${EDGE_THRESHOLD} ($(echo "$EDGE_THRESHOLD * 100" | bc)%)"
 echo "  Position size: ${POSITION_SIZE} ($(echo "$POSITION_SIZE * 100" | bc)%)"
+echo "  Train window: ${TRAIN_WINDOW} meetings"
+echo "  Test start date: ${TEST_START_DATE}"
+echo "  Fee rate: ${FEE_RATE}"
+echo "  Transaction cost: ${TRANSACTION_COST}"
+echo "  Slippage: ${SLIPPAGE}"
+echo "  Max position size: ${MAX_POSITION_SIZE}"
+echo "  YES edge threshold / size: ${YES_EDGE_THRESHOLD} / ${YES_POSITION_SIZE}"
+echo "  NO edge threshold / size: ${NO_EDGE_THRESHOLD} / ${NO_POSITION_SIZE}"
 echo ""
 
 # Step 1: Fetch transcripts (if not already done)
@@ -86,8 +104,18 @@ fomc-analysis backtest-v3 \
     --half-life 4 \
     --horizons "7,14,30" \
     --edge-threshold $EDGE_THRESHOLD \
+    --yes-edge-threshold $YES_EDGE_THRESHOLD \
+    --no-edge-threshold $NO_EDGE_THRESHOLD \
     --position-size-pct $POSITION_SIZE \
+    --yes-position-size-pct $YES_POSITION_SIZE \
+    --no-position-size-pct $NO_POSITION_SIZE \
+    --max-position-size $MAX_POSITION_SIZE \
     --initial-capital $INITIAL_CAPITAL \
+    --fee-rate $FEE_RATE \
+    --transaction-cost $TRANSACTION_COST \
+    --slippage $SLIPPAGE \
+    --train-window-size $TRAIN_WINDOW \
+    --test-start-date $TEST_START_DATE \
     --output results/backtest_v3
 
 echo ""

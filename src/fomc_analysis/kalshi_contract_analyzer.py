@@ -88,6 +88,10 @@ def _normalize_market_status_filter(
 
     normalized = market_status.strip().lower()
 
+    if normalized in {"all", "any", "*", "resolved+open"}:
+        # Special case: include every market regardless of status
+        return None, None, set()
+
     status_aliases = {
         "resolved": ("settled", {"resolved", "settled"}),
         "settled": ("settled", {"resolved", "settled"}),

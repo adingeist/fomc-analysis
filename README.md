@@ -51,6 +51,9 @@ The improved backtest system (v3) provides realistic performance evaluation:
 - ✅ **Accuracy Tracking**: Measures prediction accuracy for each time horizon
 - ✅ **Realistic Trading**: Includes Kalshi's 7% fee on profits and proper position sizing
 - ✅ **Comprehensive Metrics**: ROI, Sharpe ratio, Brier score, win rate per horizon
+- ✅ **Rolling Windows**: Optional hold-out start date + sliding training windows for true OOS tests
+- ✅ **Execution Friction**: Configurable slippage, fees, and hard position caps
+- ✅ **Directional Risk Controls**: Independent probability/edge gates and sizing for YES vs NO
 - ✅ **Visual Analytics**: Automated word frequency charts for traded contracts
 
 **🚀 One-Command E2E Pipeline**:
@@ -75,6 +78,20 @@ fomc backtest-v3 \
   --contract-words data/kalshi_analysis/contract_words.json \
   --model beta \
   --horizons "7,14,30" \
+  --edge-threshold 0.12 \
+  --yes-edge-threshold 0.20 \
+  --no-edge-threshold 0.08 \
+  --position-size-pct 0.05 \
+  --yes-position-size-pct 0.04 \
+  --no-position-size-pct 0.03 \
+  --max-position-size 1500 \
+  --fee-rate 0.07 \
+  --transaction-cost 0.01 \
+  --slippage 0.01 \
+  --train-window-size 12 \
+  --test-start-date 2022-01-01 \
+  --min-yes-prob 0.65 \
+  --max-no-prob 0.35 \
   --output results/backtest_v3
 ```
 

@@ -263,14 +263,28 @@ class TimeHorizonBacktester:
         Historical market prices at different horizons
     horizons : List[int], default=[7, 14, 30]
         Days before meeting to make predictions
-    edge_threshold : float, default=0.10
-        Minimum edge required to trade
+    edge_threshold : float, default=0.12
+        Minimum edge required to trade (used when side-specific thresholds unset)
     position_size_pct : float, default=0.05
-        Fraction of capital to risk per trade
+        Fraction of capital to risk per trade (used unless side-specific sizing provided)
     fee_rate : float, default=0.07
         Kalshi fee rate (7% on profits)
+    transaction_cost_rate : float, default=0.01
+        Additional round-trip trading cost as a fraction of position size
+    slippage : float, default=0.01
+        Slippage applied against the entry price (price units, e.g., 0.01 = 1¢)
+    max_position_size : Optional[float], default=1500.0
+        Upper bound on dollars allocated per trade
+    train_window_size : Optional[int], default=12
+        Number of historical meetings used for training (rolling window)
+    test_start_date : Optional[str], default="2022-01-01"
+        Ignore meetings before this date when evaluating out-of-sample performance
     min_train_window : int, default=5
         Minimum number of historical meetings for training
+    yes_edge_threshold/no_edge_threshold : Optional[float]
+        Side-specific edge gates; fall back to edge_threshold when unset
+    yes_position_size_pct/no_position_size_pct : Optional[float]
+        Side-specific position sizing overrides
     """
 
     def __init__(
@@ -278,12 +292,21 @@ class TimeHorizonBacktester:
         outcomes: pd.DataFrame,
         historical_prices: pd.DataFrame,
         horizons: List[int] = None,
-        edge_threshold: float = 0.10,
+        edge_threshold: float = 0.12,
         position_size_pct: float = 0.05,
         fee_rate: float = 0.07,
+        transaction_cost_rate: float = 0.01,
+        slippage: float = 0.01,
+        max_position_size: Optional[float] = 1500.0,
+        train_window_size: Optional[int] = 12,
+        test_start_date: Optional[str] = "2022-01-01",
         min_train_window: int = 5,
-        min_yes_probability: float = 0.0,
-        max_no_probability: float = 1.0,
+        min_yes_probability: float = 0.65,
+        max_no_probability: float = 0.35,
+        yes_edge_threshold: Optional[float] = 0.20,
+        no_edge_threshold: Optional[float] = 0.08,
+        yes_position_size_pct: Optional[float] = 0.04,
+        no_position_size_pct: Optional[float] = 0.03,
     ):
         self.outcomes = outcomes.sort_values("meeting_date")
         self.historical_prices = historical_prices
@@ -291,9 +314,22 @@ class TimeHorizonBacktester:
         self.edge_threshold = edge_threshold
         self.position_size_pct = position_size_pct
         self.fee_rate = fee_rate
+        self.transaction_cost_rate = max(0.0, transaction_cost_rate)
+        self.slippage = max(0.0, slippage)
+        self.max_position_size = float(max_position_size) if max_position_size is not None else None
+        if self.max_position_size is not None and self.max_position_size <= 0:
+            raise ValueError("max_position_size must be positive")
+        self.train_window_size = int(train_window_size) if train_window_size is not None else None
+        if self.train_window_size is not None and self.train_window_size < 1:
+            raise ValueError("train_window_size must be positive")
+        self.test_start_date = pd.to_datetime(test_start_date).normalize() if test_start_date else None
         self.min_train_window = min_train_window
         self.min_yes_probability = min_yes_probability
         self.max_no_probability = max_no_probability
+        self.yes_edge_threshold = yes_edge_threshold
+        self.no_edge_threshold = no_edge_threshold
+        self.yes_position_size_pct = yes_position_size_pct
+        self.no_position_size_pct = no_position_size_pct
 
     def run(
         self,
@@ -349,8 +385,13 @@ class TimeHorizonBacktester:
             if i < self.min_train_window:
                 continue
 
+            if self.test_start_date is not None and current_meeting < self.test_start_date:
+                continue
+
             # Train on all previous meetings
             train_data = outcome_matrix.loc[outcome_matrix.index < current_meeting]
+            if self.train_window_size is not None and len(train_data) > self.train_window_size:
+                train_data = train_data.tail(self.train_window_size)
 
             # Fit model
             model = model_class(**model_params)
@@ -417,63 +458,67 @@ class TimeHorizonBacktester:
                     )
                     predictions.append(snapshot)
 
-                    # Decide whether to trade
-                    if edge is not None and abs(edge) >= self.edge_threshold:
-                        # Determine trade direction
-                        if edge > 0:
-                            if predicted_prob < self.min_yes_probability:
-                                continue
-                            side = "YES"
-                            entry_price = market_price
+                    if edge is None:
+                        continue
+
+                    if edge > 0:
+                        side = "YES"
+                        if predicted_prob < self.min_yes_probability:
+                            continue
+                        required_edge = self._edge_threshold_for_side(side)
+                        if edge < required_edge:
+                            continue
+                        raw_entry_price = market_price
+                    elif edge < 0:
+                        side = "NO"
+                        if predicted_prob > self.max_no_probability:
+                            continue
+                        required_edge = self._edge_threshold_for_side(side)
+                        if abs(edge) < required_edge:
+                            continue
+                        raw_entry_price = 1 - market_price
+                    else:
+                        continue
+
+                    entry_price = self._adjust_entry_price(raw_entry_price)
+                    position_size = self._calculate_position_size(capital, side)
+                    if position_size <= 0:
+                        continue
+
+                    if side == "YES":
+                        if actual_outcome == 1:
+                            gross_pnl = position_size * (1 - entry_price) / entry_price
+                            fees = gross_pnl * self.fee_rate
+                            pnl = gross_pnl - fees
                         else:
-                            if predicted_prob > self.max_no_probability:
-                                continue
-                            side = "NO"
-                            entry_price = 1 - market_price
+                            pnl = -position_size
+                    else:  # NO
+                        if actual_outcome == 0:
+                            gross_pnl = position_size * entry_price / (1 - entry_price)
+                            fees = gross_pnl * self.fee_rate
+                            pnl = gross_pnl - fees
+                        else:
+                            pnl = -position_size
 
-                        # Position size
-                        position_size = capital * self.position_size_pct
+                    pnl -= position_size * self.transaction_cost_rate
+                    capital += pnl
+                    roi = pnl / position_size if position_size else 0.0
 
-                        # Calculate P&L
-                        if side == "YES":
-                            if actual_outcome == 1:
-                                # Won bet
-                                gross_pnl = position_size * (1 - entry_price) / entry_price
-                                fees = gross_pnl * self.fee_rate
-                                pnl = gross_pnl - fees
-                            else:
-                                # Lost bet
-                                pnl = -position_size
-                        else:  # NO
-                            if actual_outcome == 0:
-                                # Won bet
-                                gross_pnl = position_size * entry_price / (1 - entry_price)
-                                fees = gross_pnl * self.fee_rate
-                                pnl = gross_pnl - fees
-                            else:
-                                # Lost bet
-                                pnl = -position_size
-
-                        # Update capital
-                        capital += pnl
-                        roi = pnl / position_size
-
-                        # Record trade
-                        trade = Trade(
-                            meeting_date=current_meeting.strftime("%Y-%m-%d"),
-                            contract=contract,
-                            prediction_date=pred_date_actual.strftime("%Y-%m-%d") if pred_date_actual else prediction_date.strftime("%Y-%m-%d"),
-                            days_before_meeting=horizon,
-                            side=side,
-                            position_size=position_size,
-                            entry_price=entry_price,
-                            predicted_probability=predicted_prob,
-                            edge=edge,
-                            actual_outcome=actual_outcome,
-                            pnl=pnl,
-                            roi=roi,
-                        )
-                        trades.append(trade)
+                    trade = Trade(
+                        meeting_date=current_meeting.strftime("%Y-%m-%d"),
+                        contract=contract,
+                        prediction_date=pred_date_actual.strftime("%Y-%m-%d") if pred_date_actual else prediction_date.strftime("%Y-%m-%d"),
+                        days_before_meeting=horizon,
+                        side=side,
+                        position_size=position_size,
+                        entry_price=entry_price,
+                        predicted_probability=predicted_prob,
+                        edge=edge,
+                        actual_outcome=actual_outcome,
+                        pnl=pnl,
+                        roi=roi,
+                    )
+                    trades.append(trade)
 
         # Compute metrics by horizon
         horizon_metrics = self._compute_horizon_metrics(predictions, trades)
@@ -497,8 +542,47 @@ class TimeHorizonBacktester:
                 "fee_rate": self.fee_rate,
                 "min_yes_probability": self.min_yes_probability,
                 "max_no_probability": self.max_no_probability,
+                "transaction_cost_rate": self.transaction_cost_rate,
+                "slippage": self.slippage,
+                "max_position_size": self.max_position_size,
+                "train_window_size": self.train_window_size,
+                "test_start_date": str(self.test_start_date.date()) if self.test_start_date else None,
+                "yes_edge_threshold": self.yes_edge_threshold,
+                "no_edge_threshold": self.no_edge_threshold,
+                "yes_position_size_pct": self.yes_position_size_pct,
+                "no_position_size_pct": self.no_position_size_pct,
             },
         )
+
+    def _edge_threshold_for_side(self, side: str) -> float:
+        if side == "YES" and self.yes_edge_threshold is not None:
+            return self.yes_edge_threshold
+        if side == "NO" and self.no_edge_threshold is not None:
+            return self.no_edge_threshold
+        return self.edge_threshold
+
+    def _position_pct_for_side(self, side: str) -> float:
+        if side == "YES" and self.yes_position_size_pct is not None:
+            return self.yes_position_size_pct
+        if side == "NO" and self.no_position_size_pct is not None:
+            return self.no_position_size_pct
+        return self.position_size_pct
+
+    def _calculate_position_size(self, capital: float, side: str) -> float:
+        if capital <= 0:
+            return 0.0
+        pct = self._position_pct_for_side(side)
+        position_size = capital * pct
+        if self.max_position_size is not None:
+            position_size = min(position_size, self.max_position_size)
+        return min(position_size, capital)
+
+    def _adjust_entry_price(self, raw_price: float) -> float:
+        if raw_price is None:
+            return None
+        adjusted = raw_price + self.slippage
+        eps = 1e-6
+        return float(np.clip(adjusted, eps, 1 - eps))
 
     def _compute_horizon_metrics(
         self,
