@@ -1,0 +1,212 @@
+# Default keywords for earnings call analysis
+# Categories: sentiment, guidance, competition, growth, margins, regulation
+
+# Positive sentiment keywords
+sentiment_positive:
+  strong:
+    - strong
+    - stronger
+    - strongest
+    - strength
+  growth:
+    - growth
+    - growing
+    - grew
+  momentum:
+    - momentum
+  exceeded:
+    - exceeded
+    - exceed
+    - exceeding
+    - outperform
+    - outperformed
+  confident:
+    - confident
+    - confidence
+  optimistic:
+    - optimistic
+    - optimism
+  improvement:
+    - improvement
+    - improve
+    - improved
+    - improving
+  success:
+    - success
+    - successful
+    - successfully
+  opportunity:
+    - opportunity
+    - opportunities
+
+# Negative sentiment keywords
+sentiment_negative:
+  headwind:
+    - headwind
+    - headwinds
+  challenge:
+    - challenge
+    - challenges
+    - challenging
+    - challenged
+  pressure:
+    - pressure
+    - pressures
+    - pressured
+  decline:
+    - decline
+    - declined
+    - declining
+  weakness:
+    - weakness
+    - weak
+    - weaker
+  concern:
+    - concern
+    - concerns
+    - concerned
+  difficult:
+    - difficult
+    - difficulty
+    - difficulties
+  uncertainty:
+    - uncertainty
+    - uncertain
+  risk:
+    - risk
+    - risks
+    - risky
+
+# Guidance keywords
+guidance:
+  raise:
+    - raise
+    - raised
+    - raising
+    - increase
+    - increased
+    - increasing
+  lower:
+    - lower
+    - lowered
+    - lowering
+    - reduce
+    - reduced
+    - reducing
+  expect:
+    - expect
+    - expected
+    - expecting
+    - expectation
+    - expectations
+  outlook:
+    - outlook
+    - guidance
+  forecast:
+    - forecast
+    - forecasting
+    - forecasted
+
+# Competition keywords
+competition:
+  compete:
+    - compete
+    - competition
+    - competitive
+    - competitor
+    - competitors
+  market_share:
+    - market share
+    - share
+  pricing:
+    - pricing
+    - price
+    - prices
+    - priced
+
+# Growth keywords
+growth_metrics:
+  revenue:
+    - revenue
+    - revenues
+    - sales
+  margin:
+    - margin
+    - margins
+  profit:
+    - profit
+    - profits
+    - profitable
+    - profitability
+  customer:
+    - customer
+    - customers
+  user:
+    - user
+    - users
+  subscriber:
+    - subscriber
+    - subscribers
+    - subscription
+    - subscriptions
+
+# Operational efficiency
+efficiency:
+  cost:
+    - cost
+    - costs
+  efficiency:
+    - efficiency
+    - efficient
+  productivity:
+    - productivity
+    - productive
+  automation:
+    - automation
+    - automate
+    - automated
+
+# Technology/Innovation
+innovation:
+  ai:
+    - ai
+    - artificial intelligence
+    - machine learning
+  technology:
+    - technology
+    - technological
+  innovation:
+    - innovation
+    - innovative
+    - innovate
+  platform:
+    - platform
+    - platforms
+
+# Macro environment
+macro:
+  inflation:
+    - inflation
+    - inflationary
+  economy:
+    - economy
+    - economic
+  recession:
+    - recession
+    - recessionary
+  interest_rate:
+    - interest rate
+    - interest rates
+    - rates
+
+# Regulatory
+regulation:
+  regulatory:
+    - regulatory
+    - regulation
+    - regulations
+  compliance:
+    - compliance
+    - comply
+  legal:
+    - legal
