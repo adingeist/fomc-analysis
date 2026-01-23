@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from fomc_analysis.dashboard import DashboardRepository, fetch_live_prices_for_predictions
+from fomc_analysis.dashboard.prediction_verifier import PredictionVerifier, export_verification_csv
 from fomc_analysis.db.session import ensure_database_schema
 
 
@@ -1376,6 +1377,126 @@ if is_live_run:
 
                 styled_df = display_df.style.apply(highlight_recommendation, axis=1)
                 st.dataframe(styled_df, hide_index=True, width='stretch', height=400)
+
+            st.divider()
+
+            # OPENAI VERIFICATION SECTION
+            st.markdown("### 🤖 AI Prediction Verification")
+            st.markdown("""
+            Use OpenAI to verify predictions by searching for relevant news, economic trends,
+            and market signals. The AI will analyze current events and either confirm or cast doubt on the predictions.
+            """)
+
+            verify_cols = st.columns([2, 1, 1])
+
+            with verify_cols[0]:
+                openai_api_key = st.text_input(
+                    "OpenAI API Key",
+                    type="password",
+                    help="Your OpenAI API key. Required for verification.",
+                    placeholder="sk-..."
+                )
+
+            with verify_cols[1]:
+                export_csv = st.checkbox(
+                    "📥 Export CSV",
+                    value=True,
+                    help="Export predictions and word frequency data to CSV"
+                )
+
+            with verify_cols[2]:
+                verify_button = st.button(
+                    "🔍 Verify Predictions",
+                    type="primary",
+                    disabled=not openai_api_key,
+                    help="Send predictions to OpenAI for verification with web search"
+                )
+
+            # Handle verification
+            if verify_button and openai_api_key:
+                with st.spinner("🔍 Verifying predictions with OpenAI..."):
+                    try:
+                        # Initialize verifier
+                        verifier = PredictionVerifier(api_key=openai_api_key)
+
+                        # Export CSV if requested
+                        csv_path = None
+                        if export_csv:
+                            csv_path = export_verification_csv(
+                                filtered_df if not filtered_df.empty else predictions_df,
+                                mentions_df,
+                                output_path="verification_data.csv"
+                            )
+                            st.success(f"✅ Exported data to {csv_path}")
+
+                        # Prepare verification data
+                        verification_data = verifier.prepare_verification_data(
+                            filtered_df if not filtered_df.empty else predictions_df,
+                            mentions_df,
+                            summary_df
+                        )
+
+                        # Get next meeting date
+                        meeting_date = str(next_meeting) if next_meeting else None
+
+                        # Verify predictions
+                        result = verifier.verify_predictions(
+                            verification_data,
+                            meeting_date=meeting_date
+                        )
+
+                        # Display results
+                        st.markdown("#### 📊 Verification Results")
+
+                        # Show overall assessment in an info box with confidence color
+                        confidence_colors = {
+                            "High": "🟢",
+                            "Medium": "🟡",
+                            "Low": "🔴"
+                        }
+                        confidence_icon = confidence_colors.get(result["confidence_level"], "⚪")
+
+                        result_cols = st.columns([1, 1, 1])
+
+                        with result_cols[0]:
+                            st.metric(
+                                "Confidence Level",
+                                f"{confidence_icon} {result['confidence_level']}",
+                                help="AI's confidence in the predictions"
+                            )
+
+                        with result_cols[1]:
+                            st.metric(
+                                "Recommendation",
+                                result["recommendation"],
+                                help="AI's overall recommendation"
+                            )
+
+                        with result_cols[2]:
+                            st.metric(
+                                "Verified At",
+                                datetime.fromisoformat(result["timestamp"]).strftime("%H:%M:%S"),
+                                help="When the verification was performed"
+                            )
+
+                        # Full assessment in an expander
+                        with st.expander("📝 Full Analysis", expanded=True):
+                            st.markdown(result["overall_assessment"])
+
+                        # Show concerns and confirmations if available
+                        if result.get("concerns"):
+                            with st.expander("⚠️ Concerns & Risks"):
+                                for concern in result["concerns"]:
+                                    st.markdown(f"- {concern}")
+
+                        if result.get("confirmations"):
+                            with st.expander("✅ Confirmations & Support"):
+                                for confirmation in result["confirmations"]:
+                                    st.markdown(f"- {confirmation}")
+
+                    except Exception as e:
+                        st.error(f"❌ Verification failed: {str(e)}")
+                        st.info("💡 Make sure your OpenAI API key is valid and has sufficient credits.")
 
             st.divider()
 
