@@ -466,6 +466,144 @@ def get_urgency_label(days_until: float | None) -> str | None:
     return None
 
 
+def get_last_n_meetings_for_contract(
+    contract: str,
+    n_meetings: int,
+    mentions_df: pd.DataFrame
+) -> pd.Series:
+    """Get last N meetings' mention counts for a specific contract.
+
+    Args:
+        contract: The contract/word to look up
+        n_meetings: Number of recent meetings to retrieve
+        mentions_df: DataFrame with meeting_date and contract columns
+
+    Returns:
+        Series with meeting dates as index and mention counts as values
+    """
+    if contract not in mentions_df.columns:
+        return pd.Series(dtype=float)
+
+    # Sort by date and get last N meetings
+    sorted_df = mentions_df.sort_values('meeting_date', ascending=True)
+    last_n = sorted_df[['meeting_date', contract]].tail(n_meetings)
+
+    return last_n.set_index('meeting_date')[contract]
+
+
+def calculate_trend(historical_mentions: pd.Series) -> tuple[str, str]:
+    """Calculate trend from historical mention data.
+
+    Args:
+        historical_mentions: Series of mention counts over time
+
+    Returns:
+        Tuple of (trend_label, trend_emoji)
+    """
+    if len(historical_mentions) < 3:
+        return "Insufficient data", "⚪"
+
+    # Calculate simple moving average trend
+    values = historical_mentions.values
+    first_half_avg = values[:len(values)//2].mean()
+    second_half_avg = values[len(values)//2:].mean()
+
+    # Calculate percentage change
+    if first_half_avg > 0:
+        pct_change = (second_half_avg - first_half_avg) / first_half_avg
+    else:
+        pct_change = 1.0 if second_half_avg > 0 else 0.0
+
+    # Determine trend based on change
+    if pct_change > 0.3:
+        return "Increasing", "📈"
+    elif pct_change < -0.3:
+        return "Decreasing", "📉"
+    else:
+        return "Stable", "➡️"
+
+
+def get_historical_frequency(
+    contract: str,
+    mentions_df: pd.DataFrame,
+    n_meetings: int = 6
+) -> tuple[str, int, int]:
+    """Get frequency string and counts for historical mentions.
+
+    Args:
+        contract: The contract/word to look up
+        mentions_df: DataFrame with meeting_date and contract columns
+        n_meetings: Number of recent meetings to check (default 6)
+
+    Returns:
+        Tuple of (frequency_string, mentioned_count, total_count)
+        e.g., ("5/6", 5, 6)
+    """
+    mentions = get_last_n_meetings_for_contract(contract, n_meetings, mentions_df)
+
+    if mentions.empty:
+        return "N/A", 0, 0
+
+    mentioned_count = int((mentions > 0).sum())
+    total_count = len(mentions)
+
+    return f"{mentioned_count}/{total_count}", mentioned_count, total_count
+
+
+def calculate_confidence_score(
+    row: pd.Series,
+    historical_mentions: pd.Series | None = None
+) -> float:
+    """Calculate 0-100 confidence score for a trade recommendation.
+
+    Score is based on:
+    - Edge magnitude (40%)
+    - Historical consistency (30%)
+    - Model confidence interval width (20%)
+    - Days until meeting (10%)
+
+    Args:
+        row: Prediction row with edge, confidence bounds, days_until_meeting
+        historical_mentions: Optional series of historical mention counts
+
+    Returns:
+        Confidence score from 0-100
+    """
+    score = 0.0
+
+    # Edge score (40 points max)
+    edge = row.get('edge', 0)
+    if pd.notna(edge):
+        edge_score = min(abs(edge) / 0.3, 1.0) * 40
+        score += edge_score
+
+    # Historical consistency score (30 points max)
+    if historical_mentions is not None and not historical_mentions.empty:
+        mention_rate = (historical_mentions > 0).sum() / len(historical_mentions)
+        score += mention_rate * 30
+
+    # Confidence interval score (20 points max)
+    # Narrower CI = higher confidence
+    conf_lower = row.get('confidence_lower', 0)
+    conf_upper = row.get('confidence_upper', 1)
+    if pd.notna(conf_lower) and pd.notna(conf_upper):
+        ci_width = conf_upper - conf_lower
+        ci_score = max(0, (1 - ci_width / 0.4)) * 20
+        score += ci_score
+
+    # Urgency score (10 points max)
+    days_until = row.get('days_until_meeting')
+    if pd.notna(days_until):
+        if days_until <= 3:
+            score += 10
+        elif days_until <= 7:
+            score += 7
+        else:
+            score += 5
+
+    return min(score, 100.0)
+
+
 def get_trade_recommendation(
     edge: float | None,
     predicted_prob: float | None,
@@ -845,6 +983,8 @@ if is_live_run:
         if predictions_df.empty:
             st.info("📭 No live predictions available. Click 'Refresh' to generate new ones.")
         else:
+            # Load historical mention data for context
+            mentions_df, summary_df = load_word_frequency_artifacts()
             # Get predictions with recommendations
             df = predictions_df.copy()
 
@@ -922,7 +1062,42 @@ if is_live_run:
 
             # Quick Filters at the top
             st.markdown("### 🔍 Filters")
-            filter_cols = st.columns([2, 2, 2, 2])
+
+            # Smart filter presets
+            st.markdown("**Quick Presets:**")
+            preset_cols = st.columns(4)
+
+            with preset_cols[0]:
+                if st.button("⭐ High Confidence", help="Edge >15% & mentioned in 4+ of last 6 meetings"):
+                    st.session_state['preset_filter'] = 'high_confidence'
+                    st.rerun()
+
+            with preset_cols[1]:
+                if st.button("📈 Trending Up", help="Increasing mention frequency"):
+                    st.session_state['preset_filter'] = 'trending_up'
+                    st.rerun()
+
+            with preset_cols[2]:
+                if st.button("🔥 Urgent & Verified", help="<3 days & strong historical pattern"):
+                    st.session_state['preset_filter'] = 'urgent_verified'
+                    st.rerun()
+
+            with preset_cols[3]:
+                if st.button("🔄 Clear Filters", help="Reset all filters"):
+                    st.session_state['preset_filter'] = None
+                    st.rerun()
+
+            st.markdown("")
+
+            # Apply preset filters if set
+            preset_filter = st.session_state.get('preset_filter', None)
+
+            # Set default values based on preset
+            default_edge = 0.15 if preset_filter == 'high_confidence' else 0.0
+            default_freq = 4 if preset_filter == 'high_confidence' else (3 if preset_filter in ['trending_up', 'urgent_verified'] else 0)
+            default_urgent = preset_filter == 'urgent_verified'
+
+            filter_cols = st.columns([2, 2, 2, 2, 2])
 
             with filter_cols[0]:
                 meeting_dates = ["All"] + sorted(df["meeting_date"].dropna().astype(str).unique())
@@ -938,12 +1113,19 @@ if is_live_run:
             with filter_cols[2]:
                 min_edge_filter = st.slider(
                     "📊 Min Absolute Edge",
-                    0.0, 0.5, 0.0, 0.01,
+                    0.0, 0.5, default_edge, 0.01,
                     help="Minimum edge threshold for filtering"
                 )
 
             with filter_cols[3]:
-                show_only_urgent = st.checkbox("⚡ Only urgent (<3 days)", value=False)
+                min_historical_frequency = st.slider(
+                    "📖 Min Historical Freq",
+                    0, 6, default_freq, 1,
+                    help="Minimum times mentioned in last 6 meetings"
+                )
+
+            with filter_cols[4]:
+                show_only_urgent = st.checkbox("⚡ Only urgent (<3 days)", value=default_urgent)
 
             # Apply filters
             filtered_df = df.copy()
@@ -956,6 +1138,25 @@ if is_live_run:
 
             if min_edge_filter > 0:
                 filtered_df = filtered_df[filtered_df["edge"].abs() >= min_edge_filter]
+
+            # Historical frequency filter
+            if min_historical_frequency > 0 and not mentions_df.empty:
+                def meets_frequency_threshold(contract):
+                    _, mentioned_count, _ = get_historical_frequency(contract, mentions_df, 6)
+                    return mentioned_count >= min_historical_frequency
+
+                filtered_df = filtered_df[filtered_df['contract'].apply(meets_frequency_threshold)]
+
+            # Trending up filter (for preset)
+            if preset_filter == 'trending_up' and not mentions_df.empty:
+                def is_trending_up(contract):
+                    mentions = get_last_n_meetings_for_contract(contract, 6, mentions_df)
+                    if mentions.empty or len(mentions) < 3:
+                        return False
+                    trend_label, _ = calculate_trend(mentions)
+                    return trend_label == "Increasing"
+
+                filtered_df = filtered_df[filtered_df['contract'].apply(is_trending_up)]
 
             if show_only_urgent and "days_until_meeting" in filtered_df.columns:
                 filtered_df = filtered_df[filtered_df["days_until_meeting"] <= 3]
@@ -989,9 +1190,20 @@ if is_live_run:
                     # Get urgency label
                     urgency = get_urgency_label(row.get("days_until_meeting"))
 
-                    # Build the expander title
+                    # Get historical context for this contract
+                    contract_name = row['contract']
+                    historical_mentions = get_last_n_meetings_for_contract(
+                        contract_name, 6, mentions_df
+                    ) if not mentions_df.empty else pd.Series(dtype=float)
+
+                    # Calculate trend and confidence
+                    trend_label, trend_emoji = calculate_trend(historical_mentions) if not historical_mentions.empty else ("N/A", "⚪")
+                    confidence_score = calculate_confidence_score(row, historical_mentions)
+
+                    # Build the expander title with trend and confidence
                     edge_color = "edge-positive" if row["edge"] >= 0 else "edge-negative"
-                    expander_title = f"{icon} **{row['recommendation']}** - {row['contract']}"
+                    confidence_color = "🟢" if confidence_score >= 75 else "🟡" if confidence_score >= 50 else "🔴"
+                    expander_title = f"{icon} **{row['recommendation']}** - {row['contract']}   {trend_emoji} {trend_label}   {confidence_color} {confidence_score:.0f}/100"
 
                     with st.expander(expander_title, expanded=False):
                         # Urgency badge if applicable
@@ -1034,6 +1246,38 @@ if is_live_run:
                                 help="Days until FOMC meeting"
                             )
 
+                        # Historical Verification Panel
+                        st.markdown("---")
+                        st.markdown("**📊 Historical Verification (Last 6 Meetings)**")
+
+                        if not historical_mentions.empty:
+                            # Create visual timeline
+                            hist_cols = st.columns(6)
+                            for col_idx, (meeting_date, mention_count) in enumerate(historical_mentions.items()):
+                                with hist_cols[col_idx]:
+                                    # Visual indicator
+                                    color_emoji = "🟢" if mention_count > 0 else "⚪"
+                                    date_str = meeting_date.strftime('%m/%Y') if hasattr(meeting_date, 'strftime') else str(meeting_date)[:7]
+                                    st.markdown(f"{color_emoji} **{date_str}**")
+                                    st.caption(f"{int(mention_count)} times")
+
+                            # Summary statistics
+                            freq_str, mentioned_count, total_count = get_historical_frequency(
+                                contract_name, mentions_df, 6
+                            )
+                            avg_mentions = historical_mentions.mean()
+
+                            st.markdown("")
+                            summary_cols = st.columns(3)
+                            with summary_cols[0]:
+                                st.markdown(f"**Frequency:** {freq_str} meetings ({mentioned_count/total_count*100:.0f}%)")
+                            with summary_cols[1]:
+                                st.markdown(f"**Avg Mentions:** {avg_mentions:.1f} per meeting")
+                            with summary_cols[2]:
+                                st.markdown(f"**Trend:** {trend_emoji} {trend_label}")
+                        else:
+                            st.info("No historical data available for this contract")
+
                         # Additional details
                         st.markdown("---")
                         detail_info_cols = st.columns(2)
@@ -1059,16 +1303,37 @@ if is_live_run:
                 # Format for display
                 display_df = filtered_df.copy()
 
-                # Select and order columns - streamlined
+                # Add historical context columns if data available
+                if not mentions_df.empty:
+                    display_df['historical_freq'] = display_df['contract'].apply(
+                        lambda x: get_historical_frequency(x, mentions_df, 6)[0]
+                    )
+                    display_df['trend'] = display_df['contract'].apply(
+                        lambda x: calculate_trend(
+                            get_last_n_meetings_for_contract(x, 6, mentions_df)
+                        )[1] if not get_last_n_meetings_for_contract(x, 6, mentions_df).empty else "⚪"
+                    )
+                    display_df['confidence'] = display_df.apply(
+                        lambda row: f"{calculate_confidence_score(row, get_last_n_meetings_for_contract(row['contract'], 6, mentions_df)):.0f}",
+                        axis=1
+                    )
+
+                # Select and order columns - streamlined with new columns
                 display_cols = [
                     "recommendation",
                     "contract",
                     "predicted_probability",
                     "market_price",
                     "edge",
+                ]
+
+                if not mentions_df.empty:
+                    display_cols.extend(["historical_freq", "trend", "confidence"])
+
+                display_cols.extend([
                     "days_until_meeting",
                     "meeting_date",
-                ]
+                ])
 
                 display_cols = [col for col in display_cols if col in display_df.columns]
                 display_df = display_df[display_cols]
@@ -1092,6 +1357,9 @@ if is_live_run:
                     "predicted_probability": "Predicted",
                     "market_price": "Market",
                     "edge": "Edge",
+                    "historical_freq": "Hist Freq",
+                    "trend": "Trend",
+                    "confidence": "Confidence",
                     "days_until_meeting": "Days",
                     "meeting_date": "Meeting"
                 }
