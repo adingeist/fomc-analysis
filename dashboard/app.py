@@ -31,6 +31,76 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
         font-size: 18px;
     }
+
+    /* Enhanced styling for better UX */
+    .opportunity-card {
+        border: 2px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+        background-color: #ffffff;
+    }
+    .opportunity-card-yes {
+        border-left: 5px solid #28a745;
+        background-color: #f0f9f4;
+    }
+    .opportunity-card-no {
+        border-left: 5px solid #dc3545;
+        background-color: #fef5f5;
+    }
+    .recommendation-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 14px;
+    }
+    .badge-buy-yes {
+        background-color: #28a745;
+        color: white;
+    }
+    .badge-buy-no {
+        background-color: #dc3545;
+        color: white;
+    }
+    .badge-hold {
+        background-color: #6c757d;
+        color: white;
+    }
+    .edge-positive {
+        color: #28a745;
+        font-weight: bold;
+    }
+    .edge-negative {
+        color: #dc3545;
+        font-weight: bold;
+    }
+    .urgency-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        background-color: #ffc107;
+        color: #000;
+    }
+    .hero-metric {
+        text-align: center;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin: 10px 0;
+    }
+    .metric-value {
+        font-size: 36px;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    .metric-label {
+        font-size: 14px;
+        opacity: 0.9;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -47,6 +117,41 @@ def format_metric(value: float | None, pct: bool = False) -> str:
     if pct:
         return f"{value * 100:.2f}%"
     return f"{value:,.2f}"
+
+
+def format_edge_with_color(edge: float | None) -> str:
+    """Format edge value with color coding."""
+    if edge is None:
+        return "–"
+
+    edge_pct = edge * 100
+    color_class = "edge-positive" if edge >= 0 else "edge-negative"
+    return f'<span class="{color_class}">{edge_pct:+.1f}%</span>'
+
+
+def render_recommendation_badge(recommendation: str) -> str:
+    """Render a styled recommendation badge."""
+    badge_classes = {
+        "BUY YES": "badge-buy-yes",
+        "BUY NO": "badge-buy-no",
+        "HOLD": "badge-hold"
+    }
+    badge_class = badge_classes.get(recommendation, "badge-hold")
+    return f'<span class="recommendation-badge {badge_class}">{recommendation}</span>'
+
+
+def get_urgency_label(days_until: float | None) -> str | None:
+    """Get urgency label based on days until meeting."""
+    if days_until is None or pd.isna(days_until):
+        return None
+
+    if days_until <= 1:
+        return "🔥 URGENT: Less than 1 day"
+    elif days_until <= 3:
+        return "⚡ Soon: 2-3 days"
+    elif days_until <= 7:
+        return "📅 This week"
+    return None
 
 
 def get_trade_recommendation(
@@ -77,7 +182,7 @@ def get_trade_recommendation(
     return "HOLD", "hold"
 
 
-def display_live_price_card(ticker: str, live_price_data: dict) -> None:
+def display_live_price_card(ticker: str, live_price_data: dict, compact: bool = False) -> None:
     """Display a live price card with bid/ask spread and volume."""
     if ticker not in live_price_data:
         st.warning(f"⚠️ No live price data available for {ticker}")
@@ -85,54 +190,81 @@ def display_live_price_card(ticker: str, live_price_data: dict) -> None:
 
     price = live_price_data[ticker]
 
-    # Create columns for price display
-    col1, col2, col3, col4 = st.columns(4)
+    if compact:
+        # Compact view - just key metrics
+        col1, col2, col3 = st.columns(3)
 
-    with col1:
-        st.metric(
-            "Last Price",
-            f"{price.last_price*100:.1f}¢" if price.last_price else "–",
-            delta=None,
-        )
+        with col1:
+            st.metric(
+                "💰 Last Price",
+                f"{price.last_price*100:.1f}¢" if price.last_price else "–"
+            )
 
-    with col2:
-        bid_ask_spread = None
-        if price.yes_bid is not None and price.yes_ask is not None:
-            bid_ask_spread = (price.yes_ask - price.yes_bid) * 100
-        st.metric(
-            "Bid/Ask Spread",
-            f"{bid_ask_spread:.1f}¢" if bid_ask_spread else "–",
-            delta=None,
-        )
+        with col2:
+            bid_ask_spread = None
+            if price.yes_bid is not None and price.yes_ask is not None:
+                bid_ask_spread = (price.yes_ask - price.yes_bid) * 100
+            st.metric(
+                "📊 Spread",
+                f"{bid_ask_spread:.1f}¢" if bid_ask_spread else "–",
+                help="Bid/Ask spread"
+            )
 
-    with col3:
-        st.metric(
-            "24h Volume",
-            f"{price.volume_24h:,}" if price.volume_24h else "–",
-            delta=None,
-        )
+        with col3:
+            st.metric(
+                "📈 Volume (24h)",
+                f"{price.volume_24h:,}" if price.volume_24h else "–"
+            )
+    else:
+        # Full view
+        col1, col2, col3, col4 = st.columns(4)
 
-    with col4:
-        st.metric(
-            "Open Interest",
-            f"{price.open_interest:,}" if price.open_interest else "–",
-            delta=None,
-        )
+        with col1:
+            st.metric(
+                "💰 Last Price",
+                f"{price.last_price*100:.1f}¢" if price.last_price else "–"
+            )
 
-    # Display bid/ask details
-    price_cols = st.columns(2)
-    with price_cols[0]:
-        st.markdown(f"**YES Bid:** {price.yes_bid*100:.1f}¢" if price.yes_bid else "**YES Bid:** –")
-        st.markdown(f"**YES Ask:** {price.yes_ask*100:.1f}¢" if price.yes_ask else "**YES Ask:** –")
+        with col2:
+            bid_ask_spread = None
+            if price.yes_bid is not None and price.yes_ask is not None:
+                bid_ask_spread = (price.yes_ask - price.yes_bid) * 100
+            spread_color = "🟢" if bid_ask_spread and bid_ask_spread < 3 else "🟡" if bid_ask_spread and bid_ask_spread < 5 else "🔴"
+            st.metric(
+                f"{spread_color} Spread",
+                f"{bid_ask_spread:.1f}¢" if bid_ask_spread else "–",
+                help="Lower spread = better liquidity"
+            )
 
-    with price_cols[1]:
-        st.markdown(f"**NO Bid:** {price.no_bid*100:.1f}¢" if price.no_bid else "**NO Bid:** –")
-        st.markdown(f"**NO Ask:** {price.no_ask*100:.1f}¢" if price.no_ask else "**NO Ask:** –")
+        with col3:
+            st.metric(
+                "📈 24h Volume",
+                f"{price.volume_24h:,}" if price.volume_24h else "–"
+            )
+
+        with col4:
+            st.metric(
+                "🎯 Open Interest",
+                f"{price.open_interest:,}" if price.open_interest else "–"
+            )
+
+        # Display bid/ask details in expandable section
+        with st.expander("📋 Detailed Prices", expanded=False):
+            price_cols = st.columns(2)
+            with price_cols[0]:
+                st.markdown("**YES Side**")
+                st.markdown(f"• Bid: {price.yes_bid*100:.1f}¢" if price.yes_bid else "• Bid: –")
+                st.markdown(f"• Ask: {price.yes_ask*100:.1f}¢" if price.yes_ask else "• Ask: –")
+
+            with price_cols[1]:
+                st.markdown("**NO Side**")
+                st.markdown(f"• Bid: {price.no_bid*100:.1f}¢" if price.no_bid else "• Bid: –")
+                st.markdown(f"• Ask: {price.no_ask*100:.1f}¢" if price.no_ask else "• Ask: –")
 
 
 def display_live_prices_section(predictions_df: pd.DataFrame) -> None:
     """Display live prices for all predictions in an expandable section."""
-    st.subheader("💹 Live Market Prices")
+    st.markdown("**Live Market Data from Kalshi**")
 
     with st.spinner("Fetching live price data from Kalshi..."):
         try:
@@ -142,7 +274,17 @@ def display_live_prices_section(predictions_df: pd.DataFrame) -> None:
                 st.warning("⚠️ Could not fetch live price data. Check your Kalshi API credentials.")
                 return
 
-            st.success(f"✓ Loaded live prices for {len(live_prices)} markets")
+            st.success(f"✅ Loaded live prices for {len(live_prices)} markets")
+
+            # Show compact view option
+            view_mode = st.radio(
+                "View mode",
+                ["Compact", "Detailed"],
+                horizontal=True,
+                help="Compact view shows only key metrics"
+            )
+
+            compact = view_mode == "Compact"
 
             # Group by meeting date
             if "meeting_date" in predictions_df.columns:
@@ -153,14 +295,15 @@ def display_live_prices_section(predictions_df: pd.DataFrame) -> None:
                         predictions_df["meeting_date"] == meeting_date
                     ]
 
-                    with st.expander(f"📅 {meeting_date} ({len(meeting_predictions)} markets)", expanded=True):
+                    with st.expander(f"📅 {meeting_date} ({len(meeting_predictions)} markets)", expanded=False):
                         for idx, row in meeting_predictions.iterrows():
                             ticker = row.get("ticker")
                             contract = row.get("contract", ticker)
 
-                            st.markdown(f"### {contract}")
-                            display_live_price_card(ticker, live_prices)
-                            st.divider()
+                            st.markdown(f"**{contract}**")
+                            display_live_price_card(ticker, live_prices, compact=compact)
+                            if idx < len(meeting_predictions) - 1:
+                                st.markdown("---")
             else:
                 # If no meeting date, just display all
                 for idx, row in predictions_df.iterrows():
@@ -168,7 +311,7 @@ def display_live_prices_section(predictions_df: pd.DataFrame) -> None:
                     contract = row.get("contract", ticker)
 
                     with st.expander(f"{contract}", expanded=False):
-                        display_live_price_card(ticker, live_prices)
+                        display_live_price_card(ticker, live_prices, compact=compact)
 
         except Exception as e:
             st.error(f"❌ Error fetching live prices: {str(e)}")
@@ -245,51 +388,72 @@ repo = get_repository()
 st.sidebar.title("⚙️ Configuration")
 
 # Trading thresholds
-st.sidebar.subheader("Trade Thresholds")
+st.sidebar.markdown("### 📊 Trade Thresholds")
+st.sidebar.caption("Adjust these to control recommendation sensitivity")
+
 yes_edge_threshold = st.sidebar.slider(
-    "BUY YES Edge Threshold",
+    "📈 BUY YES Edge Threshold",
     min_value=0.05,
     max_value=0.30,
     value=0.15,
     step=0.01,
-    help="Minimum edge required to recommend buying YES"
+    help="Minimum edge required to recommend buying YES. Higher = more conservative."
 )
 
 no_edge_threshold = st.sidebar.slider(
-    "BUY NO Edge Threshold",
+    "📉 BUY NO Edge Threshold",
     min_value=0.05,
     max_value=0.30,
     value=0.12,
     step=0.01,
-    help="Minimum edge required to recommend buying NO"
+    help="Minimum edge required to recommend buying NO. Higher = more conservative."
 )
 
 min_yes_prob = st.sidebar.slider(
-    "Min Probability for YES",
+    "🎯 Min Probability for YES",
     min_value=0.50,
     max_value=0.80,
     value=0.60,
     step=0.05,
-    help="Minimum predicted probability to consider BUY YES"
+    help="Minimum predicted probability to consider BUY YES. Higher = more conservative."
 )
 
 max_no_prob = st.sidebar.slider(
-    "Max Probability for NO",
+    "🎯 Max Probability for NO",
     min_value=0.20,
     max_value=0.50,
     value=0.40,
     step=0.05,
-    help="Maximum predicted probability to consider BUY NO"
+    help="Maximum predicted probability to consider BUY NO. Lower = more conservative."
 )
+
+# Show current logic
+with st.sidebar.expander("ℹ️ How recommendations work", expanded=False):
+    st.markdown(f"""
+    **BUY YES** when:
+    - Edge ≥ {yes_edge_threshold:.0%}
+    - Probability ≥ {min_yes_prob:.0%}
+
+    **BUY NO** when:
+    - Edge ≤ -{no_edge_threshold:.0%}
+    - Probability ≤ {max_no_prob:.0%}
+
+    **HOLD** otherwise
+    """)
 
 st.sidebar.divider()
 
 # Dataset selection
-st.sidebar.subheader("Data Selection")
+st.sidebar.markdown("### 📁 Data Selection")
 dataset_types = repo.list_dataset_types()
 
 if dataset_types:
-    selected_type = st.sidebar.selectbox("Dataset type", dataset_types, index=0)
+    selected_type = st.sidebar.selectbox(
+        "Dataset type",
+        dataset_types,
+        index=0,
+        help="Select the type of dataset to analyze"
+    )
 else:
     selected_type = None
 
@@ -304,13 +468,23 @@ runs_df["label"] = runs_df.apply(
     lambda row: f"{row['dataset_slug']} – {row['run_timestamp']}", axis=1
 )
 
-selected_run_label = st.sidebar.selectbox("Dataset run", runs_df["label"].tolist(), index=0)
+selected_run_label = st.sidebar.selectbox(
+    "Dataset run",
+    runs_df["label"].tolist(),
+    index=0,
+    help="Select a specific dataset run to view"
+)
 selected_run_id = runs_df.loc[runs_df["label"] == selected_run_label, "dataset_run_id"].iloc[0]
 metadata = repo.get_dataset_run(selected_run_id)
 
+# Show data freshness indicator
+if metadata and metadata.run_timestamp:
+    st.sidebar.caption(f"📅 Last updated: {metadata.run_timestamp}")
+
 # Main header
 st.title("📊 Word Mention Prediction Markets")
-st.caption("AI-powered word mention predictions for earnings calls and FOMC meetings")
+st.markdown("**AI-powered word mention predictions for earnings calls and FOMC meetings**")
+st.caption("Identify mispriced contracts and find trading opportunities with machine learning")
 
 # Contract type selector (top-level tabs)
 contract_type_tabs = st.tabs(["💼 FOMC Speaker Words", "📞 Earnings Call Words (Coming Soon)"])
@@ -348,22 +522,17 @@ with contract_type_tabs[0]:
 # PREDICTIONS TAB (Main view for live runs)
 if is_live_run:
     with main_tabs[0]:
-        st.header("🎯 Live Trading Predictions")
-
-        # Refresh button
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col3:
-            if st.button("🔄 Refresh Predictions", width='stretch'):
+        # Header with refresh button
+        header_cols = st.columns([3, 1])
+        with header_cols[0]:
+            st.header("🎯 Live Trading Predictions")
+        with header_cols[1]:
+            if st.button("🔄 Refresh", width='stretch', type="primary"):
                 refresh_predictions()
 
         if predictions_df.empty:
-            st.info("📭 No live predictions available. Click 'Refresh Predictions' to generate new ones.")
+            st.info("📭 No live predictions available. Click 'Refresh' to generate new ones.")
         else:
-            # Add live prices section at the top
-            st.divider()
-            display_live_prices_section(predictions_df)
-            st.divider()
-
             # Get predictions with recommendations
             df = predictions_df.copy()
 
@@ -390,56 +559,79 @@ if is_live_run:
             if "meeting_date" in df.columns:
                 next_meeting = df["meeting_date"].min()
 
-            # Top metrics
-            metric_cols = st.columns(5)
-            metric_cols[0].metric(
-                "Total Predictions",
-                len(df)
-            )
-            metric_cols[1].metric(
-                "Action Items",
-                total_opportunities,
-                delta=f"{buy_yes_count} YES, {buy_no_count} NO"
-            )
-            metric_cols[2].metric(
-                "Next Meeting",
-                str(next_meeting) if next_meeting else "–"
-            )
-
-            if "edge" in df.columns:
-                best_edge = df["edge"].abs().max()
-                metric_cols[3].metric(
-                    "Best Edge",
-                    f"{best_edge*100:.1f}%" if pd.notna(best_edge) else "–"
-                )
-
+            # Get days until meeting
+            days_until = None
             if "days_until_meeting" in df.columns:
                 days_until = df["days_until_meeting"].min()
-                metric_cols[4].metric(
-                    "Days Until Meeting",
-                    int(days_until) if pd.notna(days_until) else "–"
+
+            # Top summary metrics in colored boxes
+            st.markdown("### 📊 Summary")
+            metric_cols = st.columns(5)
+
+            with metric_cols[0]:
+                st.metric(
+                    "💼 Total Markets",
+                    len(df),
+                    help="Total number of prediction markets"
+                )
+
+            with metric_cols[1]:
+                st.metric(
+                    "🎯 Action Items",
+                    total_opportunities,
+                    delta=f"{buy_yes_count} YES, {buy_no_count} NO" if total_opportunities > 0 else None,
+                    delta_color="normal",
+                    help="Trading opportunities based on current thresholds"
+                )
+
+            with metric_cols[2]:
+                st.metric(
+                    "📅 Next Meeting",
+                    str(next_meeting) if next_meeting else "–",
+                    help="Next FOMC meeting date"
+                )
+
+            with metric_cols[3]:
+                best_edge = df["edge"].abs().max() if "edge" in df.columns else None
+                st.metric(
+                    "📈 Best Edge",
+                    f"{best_edge*100:.1f}%" if pd.notna(best_edge) else "–",
+                    help="Highest absolute edge among all predictions"
+                )
+
+            with metric_cols[4]:
+                st.metric(
+                    "⏰ Days Until",
+                    int(days_until) if pd.notna(days_until) else "–",
+                    help="Days until next FOMC meeting"
                 )
 
             st.divider()
 
-            # Filters
-            filter_cols = st.columns(3)
+            # Quick Filters at the top
+            st.markdown("### 🔍 Filters")
+            filter_cols = st.columns([2, 2, 2, 2])
 
             with filter_cols[0]:
                 meeting_dates = ["All"] + sorted(df["meeting_date"].dropna().astype(str).unique())
-                meeting_filter = st.selectbox("Meeting Date", meeting_dates)
+                meeting_filter = st.selectbox("📅 Meeting Date", meeting_dates)
 
             with filter_cols[1]:
                 recommendation_filter = st.selectbox(
-                    "Recommendation",
-                    ["All", "BUY YES", "BUY NO", "HOLD"]
+                    "💡 Recommendation",
+                    ["All", "BUY YES", "BUY NO", "HOLD"],
+                    help="Filter by trade recommendation"
                 )
 
             with filter_cols[2]:
                 min_edge_filter = st.slider(
-                    "Min Absolute Edge",
-                    0.0, 0.5, 0.0, 0.01
+                    "📊 Min Absolute Edge",
+                    0.0, 0.5, 0.0, 0.01,
+                    help="Minimum edge threshold for filtering"
                 )
+
+            with filter_cols[3]:
+                show_only_urgent = st.checkbox("⚡ Only urgent (<3 days)", value=False)
 
             # Apply filters
             filtered_df = df.copy()
@@ -453,12 +645,101 @@ if is_live_run:
             if min_edge_filter > 0:
                 filtered_df = filtered_df[filtered_df["edge"].abs() >= min_edge_filter]
 
+            if show_only_urgent and "days_until_meeting" in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df["days_until_meeting"] <= 3]
+
             # Sort by absolute edge
             filtered_df["edge_abs"] = filtered_df["edge"].abs()
             filtered_df = filtered_df.sort_values("edge_abs", ascending=False)
 
-            # Display predictions
-            st.subheader(f"📋 {len(filtered_df)} Predictions")
+            st.divider()
+
+            # TOP OPPORTUNITIES FIRST (Most important content)
+            st.markdown("### 🎯 Top Opportunities")
+            top_opportunities = filtered_df[filtered_df["recommendation"] != "HOLD"].head(10)
+
+            if top_opportunities.empty:
+                st.info("💡 No strong trading opportunities at current thresholds. Try adjusting the filters or threshold settings in the sidebar.")
+            else:
+                # Display top opportunities in a clean card layout
+                for idx, row in top_opportunities.iterrows():
+                    # Determine card styling
+                    card_class = "opportunity-card"
+                    if row["recommendation"] == "BUY YES":
+                        card_class += " opportunity-card-yes"
+                        icon = "📈"
+                    elif row["recommendation"] == "BUY NO":
+                        card_class += " opportunity-card-no"
+                        icon = "📉"
+                    else:
+                        icon = "➖"
+
+                    # Get urgency label
+                    urgency = get_urgency_label(row.get("days_until_meeting"))
+
+                    # Build the expander title
+                    edge_color = "edge-positive" if row["edge"] >= 0 else "edge-negative"
+                    expander_title = f"{icon} **{row['recommendation']}** - {row['contract']}"
+
+                    with st.expander(expander_title, expanded=False):
+                        # Urgency badge if applicable
+                        if urgency:
+                            st.markdown(f'<span class="urgency-badge">{urgency}</span>', unsafe_allow_html=True)
+                            st.markdown("")
+
+                        # Key metrics in columns
+                        detail_cols = st.columns(4)
+
+                        with detail_cols[0]:
+                            st.metric(
+                                "Predicted Probability",
+                                f"{row['predicted_probability']*100:.1f}%",
+                                help="Model's predicted probability"
+                            )
+
+                        with detail_cols[1]:
+                            market_price = row.get('market_price')
+                            st.metric(
+                                "Market Price",
+                                f"{market_price*100:.1f}%" if pd.notna(market_price) else "–",
+                                help="Current market price"
+                            )
+
+                        with detail_cols[2]:
+                            edge_val = row['edge']
+                            st.metric(
+                                "Edge",
+                                f"{edge_val*100:+.1f}%",
+                                delta=None,
+                                help="Difference between predicted probability and market price"
+                            )
+
+                        with detail_cols[3]:
+                            days = row.get('days_until_meeting')
+                            st.metric(
+                                "Days Until",
+                                int(days) if pd.notna(days) else "–",
+                                help="Days until FOMC meeting"
+                            )
+
+                        # Additional details
+                        st.markdown("---")
+                        detail_info_cols = st.columns(2)
+
+                        with detail_info_cols[0]:
+                            st.markdown(f"**📅 Meeting Date:** {row.get('meeting_date', '–')}")
+                            conf_lower = row.get('confidence_lower', 0)
+                            conf_upper = row.get('confidence_upper', 0)
+                            st.markdown(f"**📊 Confidence Interval:** {conf_lower*100:.1f}% - {conf_upper*100:.1f}%")
+
+                        with detail_info_cols[1]:
+                            st.markdown(f"**🎫 Ticker:** {row.get('ticker', '–')}")
+                            st.markdown(f"**📍 Market Status:** {row.get('market_status', '–')}")
+
+            st.divider()
+
+            # FULL PREDICTIONS TABLE
+            st.markdown(f"### 📋 All Predictions ({len(filtered_df)} markets)")
 
             if filtered_df.empty:
                 st.info("No predictions match your filters.")
@@ -466,25 +747,22 @@ if is_live_run:
                 # Format for display
                 display_df = filtered_df.copy()
 
-                # Select and order columns
+                # Select and order columns - streamlined
                 display_cols = [
                     "recommendation",
                     "contract",
-                    "meeting_date",
                     "predicted_probability",
                     "market_price",
                     "edge",
-                    "confidence_lower",
-                    "confidence_upper",
                     "days_until_meeting",
-                    "market_status",
+                    "meeting_date",
                 ]
 
                 display_cols = [col for col in display_cols if col in display_df.columns]
                 display_df = display_df[display_cols]
 
                 # Format percentages
-                for col in ["predicted_probability", "confidence_lower", "confidence_upper", "market_price"]:
+                for col in ["predicted_probability", "market_price"]:
                     if col in display_df.columns:
                         display_df[col] = display_df[col].apply(
                             lambda x: f"{x*100:.1f}%" if pd.notna(x) else "–"
@@ -495,84 +773,115 @@ if is_live_run:
                         lambda x: f"{x*100:+.1f}%" if pd.notna(x) else "–"
                     )
 
+                # Rename columns for better readability
+                column_renames = {
+                    "recommendation": "Action",
+                    "contract": "Contract",
+                    "predicted_probability": "Predicted",
+                    "market_price": "Market",
+                    "edge": "Edge",
+                    "days_until_meeting": "Days",
+                    "meeting_date": "Meeting"
+                }
+                display_df = display_df.rename(columns=column_renames)
+
                 # Color code recommendations
                 def highlight_recommendation(row):
-                    if row["recommendation"] == "BUY YES":
-                        return ["background-color: #d4edda"] * len(row)
-                    elif row["recommendation"] == "BUY NO":
-                        return ["background-color: #f8d7da"] * len(row)
-                    else:
-                        return [""] * len(row)
+                    if "Action" in row:
+                        if row["Action"] == "BUY YES":
+                            return ["background-color: #d4edda"] * len(row)
+                        elif row["Action"] == "BUY NO":
+                            return ["background-color: #f8d7da"] * len(row)
+                    return [""] * len(row)
 
                 styled_df = display_df.style.apply(highlight_recommendation, axis=1)
-                st.dataframe(styled_df, hide_index=True, width='stretch')
+                st.dataframe(styled_df, hide_index=True, width='stretch', height=400)
 
-                # Show detailed view for top opportunities
-                st.subheader("🎯 Top Opportunities")
-                top_opportunities = filtered_df[filtered_df["recommendation"] != "HOLD"].head(5)
+            st.divider()
 
-                if top_opportunities.empty:
-                    st.info("No strong trading opportunities at current thresholds.")
-                else:
-                    for idx, row in top_opportunities.iterrows():
-                        with st.expander(
-                            f"{row['recommendation']} - {row['contract']} (Edge: {row['edge']*100:+.1f}%)"
-                        ):
-                            detail_cols = st.columns(4)
-                            detail_cols[0].metric("Predicted Probability", f"{row['predicted_probability']*100:.1f}%")
-                            detail_cols[1].metric("Market Price", f"{row['market_price']*100:.1f}%" if pd.notna(row.get('market_price')) else "–")
-                            detail_cols[2].metric("Edge", f"{row['edge']*100:+.1f}%")
-                            detail_cols[3].metric("Days Until", int(row.get('days_until_meeting', 0)) if pd.notna(row.get('days_until_meeting')) else "–")
-
-                            st.markdown(f"**Meeting Date:** {row.get('meeting_date', '–')}")
-                            st.markdown(f"**Confidence Interval:** {row.get('confidence_lower', 0)*100:.1f}% - {row.get('confidence_upper', 0)*100:.1f}%")
-                            st.markdown(f"**Market Status:** {row.get('market_status', '–')}")
+            # LIVE PRICES SECTION - Moved to bottom, collapsed by default
+            with st.expander("💹 Live Market Prices (Click to expand)", expanded=False):
+                display_live_prices_section(filtered_df if not filtered_df.empty else predictions_df)
 
     # Training Data Tab
     with main_tabs[1]:
         st.header("📚 Training Data & Model Info")
 
         if metadata:
-            st.subheader("Model Configuration")
+            st.markdown("### 🔧 Model Configuration")
             meta_cols = st.columns(3)
-            meta_cols[0].markdown(f"**Dataset**: `{metadata.dataset_slug}`")
-            meta_cols[1].markdown(f"**Type**: `{metadata.dataset_type}`")
-            meta_cols[2].markdown(f"**Updated**: {metadata.run_timestamp}")
+            with meta_cols[0]:
+                st.metric("Dataset", metadata.dataset_slug or "–")
+            with meta_cols[1]:
+                st.metric("Type", metadata.dataset_type or "–")
+            with meta_cols[2]:
+                st.metric("Last Updated", str(metadata.run_timestamp) if metadata.run_timestamp else "–")
+
+            st.divider()
 
             if metadata.hyperparameters:
+                st.markdown("### ⚙️ Hyperparameters")
                 st.json(metadata.hyperparameters, expanded=False)
 
-        st.info("📖 This tab shows the model configuration and training metadata. The Predictions tab is where you'll find actionable trading signals.")
+        st.divider()
+        st.info("📖 This tab shows the model configuration and training metadata. The **Predictions** tab is where you'll find actionable trading signals.")
 
     # Settings Tab
     with main_tabs[2]:
         st.header("⚙️ Settings & Information")
 
-        st.subheader("Trade Recommendation Logic")
+        # Trade recommendation logic
+        st.markdown("### 🎯 Trade Recommendation Logic")
+
+        logic_cols = st.columns(2)
+
+        with logic_cols[0]:
+            st.markdown("**🟢 BUY YES** recommendations require:")
+            st.markdown(f"- ✅ Predicted probability ≥ **{min_yes_prob:.0%}**")
+            st.markdown(f"- ✅ Edge ≥ **{yes_edge_threshold:.0%}**")
+            st.success("Buy when model predicts YES higher than market")
+
+        with logic_cols[1]:
+            st.markdown("**🔴 BUY NO** recommendations require:")
+            st.markdown(f"- ✅ Predicted probability ≤ **{max_no_prob:.0%}**")
+            st.markdown(f"- ✅ Edge ≤ **-{no_edge_threshold:.0%}**")
+            st.error("Buy when model predicts NO higher than market")
+
+        st.info("**ℹ️ HOLD** for everything else - when edge is insufficient or probability doesn't meet thresholds")
+
+        st.divider()
+
+        # About section
+        st.markdown("### 📖 About This Dashboard")
         st.markdown("""
-        **BUY YES** recommendations require:
-        - Predicted probability ≥ {:.0%}
-        - Edge ≥ {:.0%}
-
-        **BUY NO** recommendations require:
-        - Predicted probability ≤ {:.0%}
-        - Edge ≤ -{:.0%}
-
-        **HOLD** for everything else.
-        """.format(min_yes_prob, yes_edge_threshold, max_no_prob, no_edge_threshold))
-
-        st.subheader("About This Dashboard")
-        st.markdown("""
-        This dashboard analyzes FOMC press conference transcripts to predict mention probabilities
+        This dashboard analyzes **FOMC press conference transcripts** to predict mention probabilities
         for Kalshi prediction market contracts. The predictions use historical data and statistical
         models to identify potential trading opportunities.
 
-        **Key Features:**
-        - 🎯 Clear BUY YES / BUY NO / HOLD recommendations
-        - 📊 Confidence intervals for uncertainty quantification
-        - 🔄 Easy refresh from live Kalshi data
-        - ⚙️ Configurable trade thresholds
-        - 📈 Backtest results for model validation
+        #### 🌟 Key Features:
+
+        - **🎯 Clear Recommendations**: BUY YES / BUY NO / HOLD signals based on edge
+        - **📊 Confidence Intervals**: Uncertainty quantification for every prediction
+        - **🔄 Live Data**: Real-time refresh from Kalshi API
+        - **⚙️ Configurable Thresholds**: Adjust risk/reward in sidebar
+        - **📈 Backtesting**: Historical validation of model performance
+        - **💹 Live Prices**: Real-time market data integration
+
+        #### 🧠 How It Works:
+
+        1. **Historical Analysis**: Model trains on past FOMC transcripts
+        2. **Probability Estimation**: Predicts word mention likelihood
+        3. **Market Comparison**: Compares predictions to Kalshi prices
+        4. **Edge Calculation**: Identifies mispriced contracts
+        5. **Recommendations**: Suggests trades when edge exceeds thresholds
+
+        #### 🎓 Understanding Edge:
+
+        **Edge** = Predicted Probability - Market Price
+
+        - **Positive Edge**: Model thinks YES is underpriced → BUY YES
+        - **Negative Edge**: Model thinks NO is underpriced → BUY NO
+        - **Near Zero**: Market fairly priced → HOLD
         """)
 
 else:
@@ -582,21 +891,62 @@ else:
 
         overall = repo.get_overall_metrics(selected_run_id)
         if overall:
-            st.subheader("Overall Performance")
+            st.markdown("### 📊 Overall Performance")
             metric_cols = st.columns(4)
-            metric_cols[0].metric("ROI", format_metric(overall.get("roi"), pct=True))
-            metric_cols[1].metric("Sharpe Ratio", format_metric(overall.get("sharpe")))
-            metric_cols[2].metric("Win Rate", format_metric(overall.get("win_rate"), pct=True))
-            metric_cols[3].metric("Total PnL", f"${format_metric(overall.get('total_pnl'))}")
+
+            with metric_cols[0]:
+                roi = overall.get("roi")
+                st.metric(
+                    "💰 ROI",
+                    format_metric(roi, pct=True),
+                    delta=None,
+                    help="Return on Investment"
+                )
+
+            with metric_cols[1]:
+                sharpe = overall.get("sharpe")
+                st.metric(
+                    "📈 Sharpe Ratio",
+                    format_metric(sharpe),
+                    delta=None,
+                    help="Risk-adjusted returns"
+                )
+
+            with metric_cols[2]:
+                win_rate = overall.get("win_rate")
+                st.metric(
+                    "🎯 Win Rate",
+                    format_metric(win_rate, pct=True),
+                    delta=None,
+                    help="Percentage of profitable trades"
+                )
+
+            with metric_cols[3]:
+                pnl = overall.get("total_pnl")
+                st.metric(
+                    "💵 Total PnL",
+                    f"${format_metric(pnl)}",
+                    delta=None,
+                    help="Total profit/loss"
+                )
+
+        st.divider()
 
         horizon_df = repo.get_horizon_metrics(selected_run_id)
         if not horizon_df.empty:
-            st.subheader("Performance by Horizon")
-            st.dataframe(horizon_df, hide_index=True, width='stretch')
+            st.markdown("### 📅 Performance by Horizon")
+            st.dataframe(horizon_df, hide_index=True, width='stretch', height=300)
 
     with main_tabs[1]:
         st.header("🎯 Predictions")
-        min_edge = st.slider("Minimum absolute edge", 0.0, 0.5, 0.0, 0.01)
+
+        filter_col1, filter_col2 = st.columns([3, 1])
+        with filter_col1:
+            min_edge = st.slider(
+                "📊 Minimum absolute edge",
+                0.0, 0.5, 0.0, 0.01,
+                help="Filter predictions by minimum edge threshold"
+            )
 
         if not predictions_df.empty:
             df = predictions_df.copy()
@@ -607,34 +957,88 @@ else:
             df["edge_abs"] = df["edge"].fillna(0.0).abs()
             df = df[df["edge_abs"] >= min_edge]
             df = df.sort_values("edge_abs", ascending=False).drop(columns=["edge_abs"])
-            st.dataframe(df, hide_index=True, width='stretch')
+
+            st.markdown(f"**Showing {len(df)} predictions** (filtered by edge ≥ {min_edge:.1%})")
+            st.dataframe(df, hide_index=True, width='stretch', height=400)
         else:
-            st.info("No predictions available for this run.")
+            st.info("📭 No predictions available for this run.")
 
     with main_tabs[2]:
         st.header("💼 Trades")
 
         if not trades_df.empty:
-            st.dataframe(trades_df, hide_index=True, width='stretch')
+            # Summary metrics first
+            st.markdown("### 📊 Trade Summary")
+            trade_cols = st.columns(4)
 
-            trade_cols = st.columns(3)
             total_pnl = trades_df["pnl"].fillna(0).sum()
             winning_trades = len(trades_df[trades_df["pnl"] > 0])
+            losing_trades = len(trades_df[trades_df["pnl"] < 0])
             total_trades = len(trades_df)
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
 
-            trade_cols[0].metric("Total PnL", f"${format_metric(total_pnl)}")
-            trade_cols[1].metric("Total Trades", total_trades)
-            trade_cols[2].metric("Winning Trades", winning_trades)
+            with trade_cols[0]:
+                st.metric(
+                    "💵 Total PnL",
+                    f"${format_metric(total_pnl)}",
+                    delta=None,
+                    help="Total profit/loss across all trades"
+                )
+
+            with trade_cols[1]:
+                st.metric(
+                    "📈 Total Trades",
+                    total_trades,
+                    help="Number of trades executed"
+                )
+
+            with trade_cols[2]:
+                st.metric(
+                    "✅ Winning Trades",
+                    f"{winning_trades}",
+                    delta=f"{win_rate:.1f}% win rate",
+                    help="Number of profitable trades"
+                )
+
+            with trade_cols[3]:
+                st.metric(
+                    "❌ Losing Trades",
+                    losing_trades,
+                    help="Number of unprofitable trades"
+                )
+
+            st.divider()
+
+            # Trade details
+            st.markdown("### 📋 Trade Details")
+            st.dataframe(trades_df, hide_index=True, width='stretch', height=400)
         else:
-            st.info("No trades executed for this run.")
+            st.info("📭 No trades executed for this run.")
 
     with main_tabs[3]:
         st.header("🔍 Grid Search Results")
 
         if not grid_df.empty:
-            st.dataframe(grid_df, hide_index=True, width='stretch')
+            st.markdown("### 📊 Hyperparameter Search Results")
+            st.caption("Results from systematic hyperparameter optimization")
+            st.dataframe(grid_df, hide_index=True, width='stretch', height=400)
+
+            # Show best performing config if available
+            if "roi" in grid_df.columns or "sharpe" in grid_df.columns:
+                st.divider()
+                st.markdown("### 🏆 Best Configuration")
+
+                sort_col = "roi" if "roi" in grid_df.columns else "sharpe"
+                best_row = grid_df.sort_values(sort_col, ascending=False).iloc[0]
+
+                best_cols = st.columns(3)
+                for i, (key, value) in enumerate(best_row.items()):
+                    if i % 3 == 0 and i > 0:
+                        best_cols = st.columns(3)
+                    with best_cols[i % 3]:
+                        st.metric(key, value)
         else:
-            st.info("No grid search results for this dataset run.")
+            st.info("📭 No grid search results for this dataset run.")
 
 # Earnings Call Words Tab (Coming Soon)
 with contract_type_tabs[1]:
