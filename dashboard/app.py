@@ -187,7 +187,7 @@ def load_upcoming_contract_words(
     return sorted(set(upcoming))
 
 
-def render_word_frequency_section(section_key: str) -> None:
+def render_word_frequency_section(section_key: str, predictions_df: pd.DataFrame | None = None) -> None:
     """Display interactive word frequency chart + summary."""
     mentions_df, summary_df = load_word_frequency_artifacts()
     if mentions_df.empty:
@@ -314,6 +314,102 @@ def render_word_frequency_section(section_key: str) -> None:
         stats_df = pd.DataFrame(stats_rows)
         st.markdown("#### 📋 Mention Stats")
         st.dataframe(stats_df, hide_index=True, width='stretch', height=300)
+
+        if predictions_df is not None and not predictions_df.empty:
+            preds = predictions_df.copy()
+            if "contract" in preds.columns:
+                preds = preds[preds["contract"].isin(selection)]
+            else:
+                preds = pd.DataFrame()
+
+            if not preds.empty:
+                if "prediction_date" in preds.columns:
+                    preds["prediction_sort"] = pd.to_datetime(
+                        preds["prediction_date"], errors="coerce"
+                    )
+                elif "meeting_date" in preds.columns:
+                    preds["prediction_sort"] = pd.to_datetime(
+                        preds["meeting_date"], errors="coerce"
+                    )
+                else:
+                    preds["prediction_sort"] = pd.Timestamp.utcnow()
+
+                preds = (
+                    preds.sort_values("prediction_sort")
+                    .groupby("contract", as_index=False)
+                    .tail(1)
+                )
+
+                keep_cols = [
+                    "contract",
+                    "meeting_date",
+                    "prediction_date",
+                    "predicted_probability",
+                    "market_price",
+                    "edge",
+                    "days_until_meeting",
+                    "ticker",
+                ]
+                existing_cols = [col for col in keep_cols if col in preds.columns]
+                pred_summary = preds[existing_cols]
+
+                combo_df = stats_df.merge(
+                    pred_summary,
+                    left_on="Contract",
+                    right_on="contract",
+                    how="left",
+                )
+                combo_df = combo_df.drop(columns=["contract"], errors="ignore")
+
+                percent_cols = ["Predicted Probability", "Market Price", "Edge"]
+                rename_map = {
+                    "meeting_date": "Meeting Date",
+                    "prediction_date": "Prediction Date",
+                    "predicted_probability": "Predicted Probability",
+                    "market_price": "Market Price",
+                    "edge": "Edge",
+                    "days_until_meeting": "Days Until Meeting",
+                    "ticker": "Ticker",
+                }
+                combo_df = combo_df.rename(columns=rename_map)
+                combo_df["Edge Raw"] = combo_df["Edge"]
+
+                for col in percent_cols:
+                    if col in combo_df.columns:
+                        if col == "Edge":
+                            combo_df[col] = combo_df[col].apply(
+                                lambda x: f"{x*100:+.1f}%" if pd.notna(x) else "–"
+                            )
+                        else:
+                            combo_df[col] = combo_df[col].apply(
+                                lambda x: f"{x*100:.1f}%" if pd.notna(x) else "–"
+                            )
+
+                def _trade_recommendation(edge_raw: float | None) -> str:
+                    if edge_raw is None or pd.isna(edge_raw):
+                        return "HOLD"
+                    threshold = 0.05
+                    if edge_raw >= threshold:
+                        return "BUY YES"
+                    if edge_raw <= -threshold:
+                        return "BUY NO"
+                    return "HOLD"
+
+                combo_df["Recommendation"] = combo_df["Edge Raw"].apply(_trade_recommendation)
+
+                def highlight_trade(row):
+                    rec = row.get("Recommendation", "")
+                    if rec == "BUY YES":
+                        return ["background-color: #d4edda"] * len(row)
+                    if rec == "BUY NO":
+                        return ["background-color: #f8d7da"] * len(row)
+                    return ["" for _ in row]
+
+                display_cols = [col for col in combo_df.columns if col not in {"Recommendation", "Edge Raw"}]
+                styled_combo = combo_df[display_cols].style.apply(highlight_trade, axis=1)
+
+                st.markdown("#### 🧭 Contract Snapshot (Mentions + Predictions)")
+                st.dataframe(styled_combo, hide_index=True, width='stretch', height=400)
 
     st.caption(
         "Source: results/backtest_v3/word_frequency_timeseries.csv "
@@ -1015,7 +1111,10 @@ if is_live_run:
 
             st.divider()
 
-            render_word_frequency_section(section_key="live_predictions")
+            render_word_frequency_section(
+                section_key="live_predictions",
+                predictions_df=filtered_df if not filtered_df.empty else predictions_df,
+            )
 
             st.divider()
 
@@ -1184,7 +1283,10 @@ else:
             st.info("📭 No predictions available for this run.")
 
         st.divider()
-        render_word_frequency_section(section_key="backtest_predictions")
+        render_word_frequency_section(
+            section_key="backtest_predictions",
+            predictions_df=df if not df.empty else predictions_df,
+        )
 
     with main_tabs[2]:
         st.header("💼 Trades")
