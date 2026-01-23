@@ -68,6 +68,22 @@ python run_e2e_backtest.py --skip-fetch --skip-parse --skip-analyze
 python test_visualization.py
 ```
 
+#### Rebuild Backtest & Upcoming Data
+
+Use `uv` to generate every artifact (clean data, fresh backtest outputs, and updated upcoming predictions) in one command:
+
+```bash
+uv run python run_e2e_backtest.py --clean
+```
+
+This clears prior downloads, re-fetches transcripts, reruns Kalshi analysis, rebuilds `results/backtest_v3/*`, and emits `results/upcoming_predictions/`.
+
+For incremental runs that reuse existing transcripts/segments, drop the clean flag and optionally skip fetch/parse/analyze:
+
+```bash
+uv run python run_e2e_backtest.py --skip-fetch --skip-parse --skip-analyze
+```
+
 **Manual Step-by-Step**:
 ```bash
 # Run the complete workflow

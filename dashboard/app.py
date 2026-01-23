@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from datetime import datetime
@@ -11,6 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from fomc_analysis.dashboard import DashboardRepository, fetch_live_prices_for_predictions
+from fomc_analysis.db.session import ensure_database_schema
 
 
 st.set_page_config(
@@ -103,6 +105,220 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+ensure_database_schema(os.getenv("DATABASE_URL"))
+
+
+RESULTS_DIR = Path("results/backtest_v3")
+WORD_FREQUENCY_TIMESERIES_PATH = RESULTS_DIR / "word_frequency_timeseries.csv"
+WORD_FREQUENCY_SUMMARY_PATH = RESULTS_DIR / "word_frequency_summary.csv"
+CONTRACT_WORDS_PATH = Path("data/kalshi_analysis/contract_words.json")
+
+
+@st.cache_data(show_spinner=False)
+def load_word_frequency_artifacts(
+    timeseries_path: str = str(WORD_FREQUENCY_TIMESERIES_PATH),
+    summary_path: str = str(WORD_FREQUENCY_SUMMARY_PATH),
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load cached mention frequency CSV outputs."""
+    ts_path = Path(timeseries_path)
+    summary_path = Path(summary_path)
+
+    mention_df = pd.DataFrame()
+    summary_df = pd.DataFrame()
+
+    if ts_path.exists():
+        try:
+            mention_df = pd.read_csv(ts_path)
+            if "meeting_date" in mention_df.columns:
+                mention_df["meeting_date"] = pd.to_datetime(
+                    mention_df["meeting_date"], errors="coerce"
+                )
+                mention_df = mention_df.dropna(subset=["meeting_date"])
+        except Exception:
+            mention_df = pd.DataFrame()
+
+    if summary_path.exists():
+        try:
+            summary_df = pd.read_csv(summary_path)
+        except Exception:
+            summary_df = pd.DataFrame()
+
+    return mention_df, summary_df
+
+
+@st.cache_data(show_spinner=False)
+def load_upcoming_contract_words(
+    contract_words_path: str = str(CONTRACT_WORDS_PATH),
+) -> list[str]:
+    """Load words with at least one unresolved/active market."""
+    path = Path(contract_words_path)
+    if not path.exists():
+        return []
+
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+
+    resolved_statuses = {
+        "finalized",
+        "settled",
+        "resolved",
+        "closed",
+        "expired",
+        "inactive",
+        "cancelled",
+        "canceled",
+    }
+
+    upcoming = []
+    for entry in data:
+        word = entry.get("word")
+        if not word:
+            continue
+        for market in entry.get("markets", []) or []:
+            status = str(market.get("status", "")).lower()
+            if not status or status not in resolved_statuses:
+                upcoming.append(word)
+                break
+
+    return sorted(set(upcoming))
+
+
+def render_word_frequency_section(section_key: str) -> None:
+    """Display interactive word frequency chart + summary."""
+    mentions_df, summary_df = load_word_frequency_artifacts()
+    if mentions_df.empty:
+        st.info(
+            "Run the backtest visualization step to generate "
+            "`word_frequency_timeseries.csv` before viewing trends."
+        )
+        return
+
+    available_words = [col for col in mentions_df.columns if col != "meeting_date"]
+    if not available_words:
+        st.info("No mention columns available in the exported CSV.")
+        return
+
+    upcoming_words = [
+        word for word in load_upcoming_contract_words() if word in available_words
+    ]
+
+    st.markdown("### 🔡 Word Mention Trends")
+    st.caption(
+        "Historical mention counts for traded markets plus the latest upcoming Kalshi words."
+    )
+
+    default_selection = (
+        list(upcoming_words[:1]) if upcoming_words else list(available_words[:3])
+    )
+    selector_key = f"{section_key}_word_frequency_selector"
+    force_flag_key = f"{selector_key}_force_upcoming"
+
+    if upcoming_words:
+        filter_cols = st.columns([1, 3])
+        with filter_cols[0]:
+            if st.button(
+                "Quick filter: upcoming words",
+                key=f"{section_key}_show_upcoming",
+                help="Display only unresolved Kalshi contracts in the chart.",
+            ):
+                st.session_state.pop(selector_key, None)
+                st.session_state[force_flag_key] = True
+
+    if st.session_state.pop(force_flag_key, False):
+        default_selection = list(upcoming_words)
+
+    selection = st.multiselect(
+        "Select contract words to visualize",
+        options=available_words,
+        default=default_selection,
+        help="Choose words to compare. Upcoming markets are pre-selected when available.",
+        key=selector_key,
+    )
+
+    focus_word = None
+    if upcoming_words:
+        focus_word = st.selectbox(
+            "Highlight upcoming market",
+            options=upcoming_words,
+            index=0,
+            help="Always include this upcoming market in the chart/table.",
+            key=f"{section_key}_upcoming_word_focus",
+        )
+        if focus_word and focus_word not in selection:
+            selection = selection + [focus_word]
+
+    selection = [word for word in dict.fromkeys(selection)]
+
+    if not selection:
+        st.warning("Select at least one contract word to plot.")
+        return
+
+    min_meeting = mentions_df["meeting_date"].min().date()
+    max_meeting = mentions_df["meeting_date"].max().date()
+    today = pd.Timestamp.utcnow().date()
+    max_picker = max(max_meeting, today)
+    date_key = f"{section_key}_date_filter"
+
+    date_range = st.date_input(
+        "Meeting date range",
+        value=(min_meeting, max_meeting),
+        min_value=min_meeting,
+        max_value=max_picker,
+        key=date_key,
+        help="Restrict the timeline shown in the chart and stats table.",
+    )
+
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_date, end_date = date_range
+    else:
+        start_date, end_date = min_meeting, max_meeting
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    filtered_mentions = mentions_df[
+        (mentions_df["meeting_date"] >= start_ts) & (mentions_df["meeting_date"] <= end_ts)
+    ].copy()
+
+    if filtered_mentions.empty:
+        st.info("No meetings fall within the selected date range.")
+        return
+
+    plot_df = filtered_mentions[["meeting_date"] + selection].copy().sort_values("meeting_date")
+    chart_df = plot_df.set_index("meeting_date")[selection]
+
+    st.line_chart(chart_df, height=360)
+
+    stats_rows = []
+    total_meetings = len(chart_df.index)
+    for word in selection:
+        series = chart_df[word]
+        meetings_with = int((series > 0).sum())
+        stats_rows.append({
+            "Contract": word,
+            "Meetings Evaluated": total_meetings,
+            "Meetings Mentioned": meetings_with,
+            "Mention Frequency (%)": (meetings_with / total_meetings * 100) if total_meetings else 0.0,
+            "Mean Mentions": series.mean(),
+            "Median Mentions": series.median(),
+            "Std Dev": series.std(),
+            "Min": int(series.min()) if not series.empty else 0,
+            "Max": int(series.max()) if not series.empty else 0,
+            "Total Mentions": int(series.sum()),
+        })
+
+    if stats_rows:
+        stats_df = pd.DataFrame(stats_rows)
+        st.markdown("#### 📋 Mention Stats")
+        st.dataframe(stats_df, hide_index=True, width='stretch', height=300)
+
+    st.caption(
+        "Source: results/backtest_v3/word_frequency_timeseries.csv "
+        "and word_frequency_summary.csv"
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -799,6 +1015,10 @@ if is_live_run:
 
             st.divider()
 
+            render_word_frequency_section(section_key="live_predictions")
+
+            st.divider()
+
             # LIVE PRICES SECTION - Moved to bottom, collapsed by default
             with st.expander("💹 Live Market Prices (Click to expand)", expanded=False):
                 display_live_prices_section(filtered_df if not filtered_df.empty else predictions_df)
@@ -962,6 +1182,9 @@ else:
             st.dataframe(df, hide_index=True, width='stretch', height=400)
         else:
             st.info("📭 No predictions available for this run.")
+
+        st.divider()
+        render_word_frequency_section(section_key="backtest_predictions")
 
     with main_tabs[2]:
         st.header("💼 Trades")

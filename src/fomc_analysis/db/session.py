@@ -6,12 +6,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from fomc_analysis.config import settings
+from fomc_analysis.db.base import Base
 
 DEFAULT_SQLITE_URL = "sqlite:///data/fomc_analysis.db"
 
@@ -67,6 +68,26 @@ def get_session_factory(database_url: str | None = None) -> sessionmaker:
     return _SESSION_FACTORIES[resolved_url]
 
 
+def ensure_database_schema(database_url: str | None = None) -> None:
+    """Create DB tables if they are missing (safe to call multiple times)."""
+
+    engine = get_engine(database_url)
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    required = {
+        "dataset_runs",
+        "overall_metrics",
+        "horizon_metrics",
+        "predictions",
+        "trades",
+        "grid_search_results",
+    }
+    if required.issubset(existing):
+        return
+
+    Base.metadata.create_all(engine)
+
+
 @contextmanager
 def session_scope(database_url: str | None = None) -> Generator[Session, None, None]:
     """Provide a transactional scope for DB work."""
@@ -81,4 +102,3 @@ def session_scope(database_url: str | None = None) -> Generator[Session, None, N
         raise
     finally:
         session.close()
-

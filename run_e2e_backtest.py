@@ -234,6 +234,41 @@ def get_traded_contracts(results: Dict) -> List[str]:
     return sorted(contracts)
 
 
+def get_upcoming_contracts(contract_words_path: Path) -> List[str]:
+    """Return contract words that still have unresolved/active markets."""
+    if not contract_words_path.exists():
+        return []
+
+    try:
+        data = json.loads(contract_words_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"Warning: Could not parse {contract_words_path}: {exc}")
+        return []
+
+    # Treat anything not in this set as still live/upcoming
+    resolved_statuses = {
+        "finalized",
+        "settled",
+        "resolved",
+        "closed",
+        "expired",
+        "inactive",
+        "cancelled",
+        "canceled",
+    }
+    upcoming = set()
+    for entry in data:
+        word = entry.get("word")
+        if not word:
+            continue
+        for market in entry.get("markets", []):
+            status = str(market.get("status", "")).lower()
+            if not status or status not in resolved_statuses:
+                upcoming.add(word)
+                break
+    return sorted(upcoming)
+
+
 def load_segment_data(segments_dir: Path) -> pd.DataFrame:
     """Load all segment files and extract Powell mentions."""
     from fomc_analysis.parsing.speaker_segmenter import load_segments_jsonl
@@ -295,13 +330,15 @@ def count_contract_mentions(
             })
 
     mentions_df = pd.DataFrame(mention_data)
+    if mentions_df.empty:
+        return pd.DataFrame()
     return mentions_df.pivot_table(
         index="date",
         columns="contract",
         values="count",
         aggfunc="sum",
         fill_value=0
-    )
+    ).sort_index()
 
 
 def generate_frequency_chart(
@@ -309,25 +346,35 @@ def generate_frequency_chart(
     traded_contracts: List[str],
     output_path: Path,
 ):
-    """Generate line chart of word frequencies for traded contracts."""
+    """Generate line chart of word frequencies for selected contracts."""
     print("\n" + "=" * 80)
     print("GENERATING VISUALIZATION")
     print("=" * 80)
 
-    # Filter to only traded contracts
-    available_contracts = [c for c in traded_contracts if c in mentions_df.columns]
-
-    if not available_contracts:
-        print("\n✗ No traded contracts found in mentions data")
+    if mentions_df.empty:
+        print("\n✗ Mention dataframe is empty - cannot plot frequencies")
         return
 
-    plot_data = mentions_df[available_contracts]
+    if not traded_contracts:
+        print("\n✗ No traded contracts available for plotting")
+        return
+
+    # Ensure every traded contract appears, filling missing ones with zeros
+    plot_data = mentions_df.reindex(columns=traded_contracts, fill_value=0).sort_index()
+    missing_contracts = [c for c in traded_contracts if c not in mentions_df.columns]
+    if missing_contracts:
+        preview = ", ".join(missing_contracts[:5])
+        suffix = "" if len(missing_contracts) <= 5 else "..."
+        print(
+            f"\n→ {len(missing_contracts)} traded words were missing mention data "
+            f"and are shown as zeros in the chart: {preview}{suffix}"
+        )
 
     # Create figure
     fig, ax = plt.subplots(figsize=(14, 8))
 
     # Plot each contract
-    for contract in available_contracts:
+    for contract in traded_contracts:
         ax.plot(
             plot_data.index,
             plot_data[contract],
@@ -378,33 +425,80 @@ def generate_frequency_chart(
     plt.close()
 
 
-def generate_summary_stats(mentions_df: pd.DataFrame, traded_contracts: List[str]):
-    """Generate and print summary statistics."""
+def export_mentions_timeseries(
+    mentions_df: pd.DataFrame,
+    traded_contracts: List[str],
+    output_path: Path,
+) -> Optional[pd.DataFrame]:
+    """Persist per-meeting mention counts for each traded contract."""
+    if mentions_df.empty or not traded_contracts:
+        print("\n→ Skipping CSV export - missing mention data or trades")
+        return None
+
+    ordered = mentions_df.reindex(columns=traded_contracts, fill_value=0).sort_index()
+    ordered.index.name = "meeting_date"
+    export_df = ordered.reset_index()
+    export_df["meeting_date"] = pd.to_datetime(
+        export_df["meeting_date"]
+    ).dt.strftime("%Y-%m-%d")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    export_df.to_csv(output_path, index=False)
+    print(f"\n✓ Mention time series saved to: {output_path}")
+    return export_df
+
+
+def generate_summary_stats(
+    mentions_df: pd.DataFrame,
+    traded_contracts: List[str],
+    output_path: Optional[Path] = None,
+) -> Optional[pd.DataFrame]:
+    """Generate, print, and optionally persist summary statistics."""
     print("\n" + "=" * 80)
     print("WORD FREQUENCY STATISTICS")
     print("=" * 80)
 
-    available_contracts = [c for c in traded_contracts if c in mentions_df.columns]
+    if mentions_df.empty:
+        print("\n✗ Mention dataframe is empty - cannot summarize frequencies")
+        return None
 
-    if not available_contracts:
-        print("\n✗ No traded contracts found in mentions data")
-        return
+    if not traded_contracts:
+        print("\n✗ No traded contracts available for summary statistics")
+        return None
 
     stats_data = []
-    for contract in available_contracts:
-        data = mentions_df[contract]
+    for contract in traded_contracts:
+        if contract in mentions_df.columns:
+            data = mentions_df[contract]
+        else:
+            data = pd.Series(0, index=mentions_df.index, name=contract)
+
+        nonzero = (data > 0).sum()
         stats_data.append({
             "Contract": contract,
-            "Mean": f"{data.mean():.2f}",
-            "Median": f"{data.median():.2f}",
-            "Std Dev": f"{data.std():.2f}",
-            "Min": int(data.min()),
-            "Max": int(data.max()),
+            "Meetings Evaluated": int(len(data)),
+            "Meetings Mentioned": int(nonzero),
+            "Mention Frequency (%)": (nonzero / len(data) * 100) if len(data) else 0.0,
+            "Mean Mentions": data.mean(),
+            "Median Mentions": data.median(),
+            "Std Dev": data.std(),
+            "Min": int(data.min()) if not data.empty else 0,
+            "Max": int(data.max()) if not data.empty else 0,
             "Total Mentions": int(data.sum()),
         })
 
     stats_df = pd.DataFrame(stats_data)
-    print("\n" + stats_df.to_string(index=False))
+    display_df = stats_df.copy()
+    for col in ["Mention Frequency (%)", "Mean Mentions", "Median Mentions", "Std Dev"]:
+        display_df[col] = display_df[col].map(lambda v: f"{v:.2f}")
+    print("\n" + display_df.to_string(index=False))
+
+    if output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        stats_df.to_csv(output_path, index=False)
+        print(f"\n✓ Mention summary saved to: {output_path}")
+
+    return stats_df
 
 
 def print_final_summary(results: Dict):
@@ -726,9 +820,13 @@ Configuration:
 
         # Get traded contracts
         traded_contracts = get_traded_contracts(results)
+        upcoming_contracts = get_upcoming_contracts(Path("data/kalshi_analysis/contract_words.json"))
         print(f"\n✓ Found {len(traded_contracts)} traded contracts")
+        print(f"✓ Found {len(upcoming_contracts)} upcoming active contracts")
 
-        if traded_contracts:
+        contracts_of_interest = sorted(dict.fromkeys(traded_contracts + upcoming_contracts))
+
+        if contracts_of_interest:
             # Load contract mapping
             contract_words_file = Path("data/kalshi_analysis/generated_contract_mapping.yaml")
             if not contract_words_file.exists():
@@ -749,16 +847,27 @@ Configuration:
                 # Generate chart
                 generate_frequency_chart(
                     mentions_df,
-                    traded_contracts,
+                    contracts_of_interest,
                     results_dir / "word_frequencies.pdf"
                 )
 
+                # Export per-meeting mention counts
+                export_mentions_timeseries(
+                    mentions_df,
+                    contracts_of_interest,
+                    results_dir / "word_frequency_timeseries.csv"
+                )
+
                 # Print statistics
-                generate_summary_stats(mentions_df, traded_contracts)
+                generate_summary_stats(
+                    mentions_df,
+                    contracts_of_interest,
+                    results_dir / "word_frequency_summary.csv"
+                )
             else:
                 print(f"\n✗ Contract mapping not found at {contract_words_file}")
         else:
-            print("\n→ No trades executed, skipping frequency chart")
+            print("\n→ No traded or upcoming contracts to visualize")
 
         # Print final summary
         print_final_summary(results)
@@ -781,6 +890,8 @@ Results saved to: results/backtest_v3/
   - horizon_metrics.csv
   - word_frequencies.pdf
   - word_frequencies.png
+  - word_frequency_timeseries.csv
+  - word_frequency_summary.csv
 """)
 
     return 0
