@@ -294,3 +294,96 @@ def backtest(ticker, features_file, outcomes_file, model, edge_threshold, initia
 
 if __name__ == "__main__":
     cli()
+
+
+@cli.command()
+@click.option("--ticker", required=True, help="Stock ticker symbol (e.g., META, COIN)")
+@click.option("--segments-dir", type=Path, required=True, help="Directory with transcript segments")
+@click.option("--output-dir", type=Path, default=None, help="Output directory")
+@click.option("--market-status", default="all", help="Filter by market status: open, resolved, all")
+@click.option("--speaker-mode", default="executives_only", help="Speaker filter mode")
+def analyze_kalshi_contracts(ticker, segments_dir, output_dir, market_status, speaker_mode):
+    """Analyze Kalshi earnings mention contracts for a ticker."""
+    import asyncio
+    from fomc_analysis.kalshi_client_factory import get_kalshi_client
+    from ..kalshi import analyze_earnings_kalshi_contracts
+    
+    config = get_config()
+    
+    if output_dir is None:
+        output_dir = config.data_dir / "kalshi_analysis" / ticker
+    
+    client = get_kalshi_client()
+    
+    click.echo(f"Analyzing Kalshi contracts for {ticker}...")
+    
+    async def run_analysis():
+        contracts, analyses = await analyze_earnings_kalshi_contracts(
+            kalshi_client=client,
+            ticker=ticker,
+            segments_dir=segments_dir,
+            output_dir=output_dir,
+            market_status=market_status,
+            speaker_mode=speaker_mode,
+        )
+        return contracts, analyses
+    
+    contracts, analyses = asyncio.run(run_analysis())
+    
+    click.echo(f"\nAnalysis complete!")
+    click.echo(f"  Contracts found: {len(contracts)}")
+    click.echo(f"  Analysis results: {len(analyses)}")
+    click.echo(f"  Output: {output_dir}")
+
+
+@cli.command()
+@click.option("--ticker", required=True, help="Stock ticker symbol")
+@click.option("--features-file", type=Path, required=True, help="Features parquet file")
+@click.option("--contract-words-file", type=Path, required=True, help="Contract words JSON file")
+@click.option("--model", default="beta", help="Model type: beta")
+@click.option("--edge-threshold", default=0.12, type=float, help="Minimum edge to trade")
+@click.option("--initial-capital", default=10000, type=float, help="Starting capital")
+@click.option("--output-dir", type=Path, default=None, help="Output directory")
+def backtest_kalshi(ticker, features_file, contract_words_file, model, edge_threshold, initial_capital, output_dir):
+    """Run backtest on Kalshi earnings mention contracts."""
+    from ..kalshi.backtester import EarningsKalshiBacktester, save_earnings_backtest_result
+    from ..models import BetaBinomialEarningsModel
+    
+    config = get_config()
+    
+    if output_dir is None:
+        output_dir = Path("results/earnings_kalshi") / ticker
+    
+    click.echo(f"Loading data for {ticker}...")
+    
+    # Load features
+    features = pd.read_parquet(features_file)
+    click.echo(f"Features: {features.shape}")
+    
+    # Load contract words
+    with open(contract_words_file, "r") as f:
+        contract_words_data = json.load(f)
+    
+    # Build outcomes dataframe from contract words
+    # This would typically come from Kalshi historical data
+    # For now, we'll need to fetch this separately
+    click.echo("Note: You need to provide actual Kalshi contract outcomes")
+    click.echo("This requires fetching resolved contract data from Kalshi API")
+    
+    # For demonstration, create a dummy outcomes frame
+    # In real usage, this should be fetched from Kalshi
+    click.echo("\nWARNING: Using placeholder outcomes. Integrate with Kalshi API for real data.")
+    
+    # Select model
+    if model == "beta":
+        model_class = BetaBinomialEarningsModel
+        model_params = {"alpha_prior": 1.0, "beta_prior": 1.0, "half_life": 4}
+    else:
+        raise ValueError(f"Unknown model: {model}")
+    
+    click.echo(f"\nBacktest framework ready. Connect to Kalshi API to fetch actual outcomes.")
+    click.echo(f"See FOMC framework's kalshi integration for reference.")
+
+
+if __name__ == "__main__":
+    cli()
