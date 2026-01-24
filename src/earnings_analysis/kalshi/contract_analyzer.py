@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
-from fomc_analysis.kalshi_client_factory import KalshiClientProtocol
+from fomc_analysis.kalshi_client_factory import KalshiClientProtocol, KalshiSdkAdapter
 
 
 @dataclass
@@ -98,7 +98,12 @@ class EarningsContractAnalyzer:
         print(f"Fetching contracts for series: {series_ticker}")
 
         try:
-            markets = await self.client.get_markets(series_ticker=series_ticker)
+            # Use async method if available (KalshiSdkAdapter)
+            if isinstance(self.client, KalshiSdkAdapter):
+                markets = await self.client.get_markets_async(series_ticker=series_ticker)
+            else:
+                # Fallback to sync for other client types
+                markets = self.client.get_markets(series_ticker=series_ticker)
         except Exception as e:
             print(f"Error fetching markets: {e}")
             return []
@@ -335,6 +340,52 @@ class EarningsContractAnalyzer:
             yaml.dump(mapping, f, default_flow_style=False, sort_keys=False)
 
         print(f"Exported {len(mapping)} contracts to {output_file}")
+
+
+async def batch_fetch_contracts(
+    kalshi_client: KalshiClientProtocol,
+    tickers: List[str],
+    market_status: Optional[str] = None,
+) -> Dict[str, List[EarningsContractWord]]:
+    """
+    Fetch contracts for multiple tickers in parallel.
+
+    Parameters
+    ----------
+    kalshi_client : KalshiClientProtocol
+        Kalshi API client
+    tickers : List[str]
+        List of company stock tickers
+    market_status : Optional[str]
+        Filter by market status
+
+    Returns
+    -------
+    Dict[str, List[EarningsContractWord]]
+        Mapping of ticker -> list of contract words
+    """
+    # Create analyzers for each ticker
+    analyzers = [
+        EarningsContractAnalyzer(kalshi_client, ticker)
+        for ticker in tickers
+    ]
+
+    # Fetch contracts in parallel using asyncio.gather
+    results = await asyncio.gather(
+        *[analyzer.fetch_contracts(market_status=market_status) for analyzer in analyzers],
+        return_exceptions=True,
+    )
+
+    # Build result mapping
+    contracts_by_ticker = {}
+    for ticker, result in zip(tickers, results):
+        if isinstance(result, Exception):
+            print(f"Error fetching contracts for {ticker}: {result}")
+            contracts_by_ticker[ticker] = []
+        else:
+            contracts_by_ticker[ticker] = result
+
+    return contracts_by_ticker
 
 
 async def analyze_earnings_kalshi_contracts(

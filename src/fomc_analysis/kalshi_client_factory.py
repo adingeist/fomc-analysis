@@ -80,7 +80,12 @@ class KalshiClientProtocol(Protocol):
 
 
 class KalshiSdkAdapter:
-    """Adapter exposing the same surface as LegacyKalshiClient via the SDK."""
+    """Adapter exposing the same surface as LegacyKalshiClient via the SDK.
+
+    Provides both synchronous and asynchronous methods for flexibility.
+    Sync methods use an internal event loop for backward compatibility.
+    Async methods can be used with asyncio.gather for parallel requests.
+    """
 
     def __init__(self) -> None:
         if MarketApi is None or EventsApi is None:  # pragma: no cover - runtime guard
@@ -135,6 +140,45 @@ class KalshiSdkAdapter:
 
         return self._run(_inner())
 
+    async def get_markets_async(
+        self,
+        series_ticker: Optional[str] = None,
+        event_ticker: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 200,
+        tickers: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Async version of get_markets for use with asyncio.gather."""
+        if tickers:
+            tickers_param = ",".join(tickers)
+        else:
+            tickers_param = None
+
+        resp = await self._market_api.get_markets_without_preload_content(
+            series_ticker=series_ticker,
+            event_ticker=event_ticker,
+            status=status,
+            limit=limit,
+            tickers=tickers_param,
+        )
+
+        try:
+            if hasattr(resp, "json"):
+                payload = await resp.json()
+            else:
+                data = await resp.read()
+                import json as _json
+                payload = _json.loads(data)
+        finally:
+            release = getattr(resp, "release", None)
+            if callable(release):
+                release()
+
+        if isinstance(payload, dict):
+            markets = payload.get("markets", [])
+            return markets or []
+        return []
+
     def get_markets(
         self,
         series_ticker: Optional[str] = None,
@@ -143,6 +187,7 @@ class KalshiSdkAdapter:
         limit: int = 200,
         tickers: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
+        """Synchronous version of get_markets (backward compatible)."""
         if tickers:
             tickers_param = ",".join(tickers)
         else:
@@ -161,11 +206,39 @@ class KalshiSdkAdapter:
             return markets or []
         return []
 
+    async def get_event_async(
+        self,
+        event_ticker: str,
+        with_nested_markets: bool = True,
+    ) -> Dict[str, Any]:
+        """Async version of get_event for use with asyncio.gather."""
+        resp = await self._events_api.get_event_without_preload_content(
+            event_ticker=event_ticker,
+            with_nested_markets=with_nested_markets,
+        )
+
+        try:
+            if hasattr(resp, "json"):
+                payload = await resp.json()
+            else:
+                data = await resp.read()
+                import json as _json
+                payload = _json.loads(data)
+        finally:
+            release = getattr(resp, "release", None)
+            if callable(release):
+                release()
+
+        if isinstance(payload, dict):
+            return payload
+        return {"event": {}}
+
     def get_event(
         self,
         event_ticker: str,
         with_nested_markets: bool = True,
     ) -> Dict[str, Any]:
+        """Synchronous version of get_event (backward compatible)."""
         payload = self._await_json(
             self._events_api.get_event_without_preload_content(
                 event_ticker=event_ticker,
@@ -176,7 +249,15 @@ class KalshiSdkAdapter:
             return payload
         return {"event": {}}
 
+    async def get_series_async(self, series_ticker: str) -> Dict[str, Any]:
+        """Async version of get_series for use with asyncio.gather."""
+        response = await self._market_api.get_series(series_ticker=series_ticker)
+        if hasattr(response, "to_dict"):
+            return response.to_dict()
+        return {}
+
     def get_series(self, series_ticker: str) -> Dict[str, Any]:
+        """Synchronous version of get_series (backward compatible)."""
         response = self._run(
             self._market_api.get_series(series_ticker=series_ticker)
         )
@@ -273,3 +354,138 @@ def get_kalshi_client() -> KalshiClientProtocol:
         "KALSHI_API_KEY/KALSHI_API_SECRET or the RSA pair "
         "KALSHI_API_KEY_ID/KALSHI_PRIVATE_KEY_BASE64 in your environment."
     )
+
+
+# Batch fetching utilities for parallel execution
+
+
+async def batch_get_markets(
+    client: KalshiSdkAdapter,
+    series_tickers: List[str],
+    status: Optional[str] = None,
+    limit: int = 200,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Fetch markets for multiple series tickers in parallel.
+
+    Parameters
+    ----------
+    client : KalshiSdkAdapter
+        Kalshi client (must be KalshiSdkAdapter for async support)
+    series_tickers : List[str]
+        List of series tickers to fetch
+    status : Optional[str]
+        Filter by market status
+    limit : int
+        Max markets per series
+
+    Returns
+    -------
+    Dict[str, List[Dict[str, Any]]]
+        Mapping of series_ticker -> list of markets
+    """
+    if not isinstance(client, KalshiSdkAdapter):
+        raise TypeError("batch_get_markets requires KalshiSdkAdapter client")
+
+    # Create tasks for parallel execution
+    tasks = [
+        client.get_markets_async(
+            series_ticker=ticker,
+            status=status,
+            limit=limit,
+        )
+        for ticker in series_tickers
+    ]
+
+    # Execute all requests in parallel
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Build result mapping
+    markets_by_series = {}
+    for ticker, result in zip(series_tickers, results):
+        if isinstance(result, Exception):
+            # Log error but continue
+            print(f"Error fetching {ticker}: {result}")
+            markets_by_series[ticker] = []
+        else:
+            markets_by_series[ticker] = result
+
+    return markets_by_series
+
+
+async def batch_get_series(
+    client: KalshiSdkAdapter,
+    series_tickers: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetch series info for multiple tickers in parallel.
+
+    Parameters
+    ----------
+    client : KalshiSdkAdapter
+        Kalshi client (must be KalshiSdkAdapter for async support)
+    series_tickers : List[str]
+        List of series tickers to fetch
+
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
+        Mapping of series_ticker -> series info
+    """
+    if not isinstance(client, KalshiSdkAdapter):
+        raise TypeError("batch_get_series requires KalshiSdkAdapter client")
+
+    tasks = [client.get_series_async(ticker) for ticker in series_tickers]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    series_by_ticker = {}
+    for ticker, result in zip(series_tickers, results):
+        if isinstance(result, Exception):
+            print(f"Error fetching series {ticker}: {result}")
+            series_by_ticker[ticker] = {}
+        else:
+            series_by_ticker[ticker] = result
+
+    return series_by_ticker
+
+
+async def batch_get_events(
+    client: KalshiSdkAdapter,
+    event_tickers: List[str],
+    with_nested_markets: bool = True,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetch events for multiple tickers in parallel.
+
+    Parameters
+    ----------
+    client : KalshiSdkAdapter
+        Kalshi client (must be KalshiSdkAdapter for async support)
+    event_tickers : List[str]
+        List of event tickers to fetch
+    with_nested_markets : bool
+        Include nested markets in response
+
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
+        Mapping of event_ticker -> event info
+    """
+    if not isinstance(client, KalshiSdkAdapter):
+        raise TypeError("batch_get_events requires KalshiSdkAdapter client")
+
+    tasks = [
+        client.get_event_async(ticker, with_nested_markets=with_nested_markets)
+        for ticker in event_tickers
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    events_by_ticker = {}
+    for ticker, result in zip(event_tickers, results):
+        if isinstance(result, Exception):
+            print(f"Error fetching event {ticker}: {result}")
+            events_by_ticker[ticker] = {"event": {}}
+        else:
+            events_by_ticker[ticker] = result
+
+    return events_by_ticker
