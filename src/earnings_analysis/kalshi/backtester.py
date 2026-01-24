@@ -1,0 +1,414 @@
+"""
+Backtester for Kalshi earnings mention contracts.
+
+Adapted from fomc_analysis.backtester_v3 for earnings calls.
+
+This backtester:
+1. Makes predictions about word mentions in upcoming earnings calls
+2. Trades Kalshi YES/NO contracts based on edge over market price
+3. Uses actual Kalshi contract outcomes for P&L calculation
+4. Provides walk-forward validation with no-lookahead guarantee
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Optional, Dict
+
+import numpy as np
+import pandas as pd
+
+
+@dataclass
+class EarningsPrediction:
+    """A prediction for an earnings call mention contract."""
+    ticker: str
+    call_date: str
+    contract: str  # Word being tracked
+    predicted_probability: float
+    confidence_lower: float
+    confidence_upper: float
+    actual_outcome: Optional[int] = None  # 1 if mentioned >= threshold, 0 otherwise
+    market_price: Optional[float] = None
+    edge: Optional[float] = None
+    correct: Optional[bool] = None
+
+
+@dataclass
+class Trade:
+    """Record of a Kalshi contract trade."""
+    ticker: str
+    call_date: str
+    contract: str
+    side: str  # "YES" or "NO"
+    position_size: float  # Dollars invested
+    entry_price: float  # Price paid (0-1)
+    predicted_probability: float
+    edge: float
+    actual_outcome: int
+    pnl: float
+    roi: float
+
+
+@dataclass
+class BacktestMetrics:
+    """Backtest performance metrics."""
+    total_predictions: int
+    correct_predictions: int
+    accuracy: float
+    total_trades: int
+    winning_trades: int
+    win_rate: float
+    total_pnl: float
+    avg_pnl_per_trade: float
+    roi: float
+    sharpe_ratio: float
+    brier_score: float
+
+
+@dataclass
+class BacktestResult:
+    """Complete backtest results."""
+    predictions: List[EarningsPrediction]
+    trades: List[Trade]
+    metrics: BacktestMetrics
+    metadata: Dict
+
+
+class EarningsKalshiBacktester:
+    """
+    Backtest Kalshi earnings mention contract trading.
+
+    Parameters
+    ----------
+    features : pd.DataFrame
+        Features dataframe (index = call_date, columns = feature names)
+        Must include word count columns matching contract names
+    outcomes : pd.DataFrame
+        Kalshi contract outcomes (index = call_date, columns = contract names)
+        Values should be 0 or 1 (NO or YES)
+    model_class : type
+        Model class to use for predictions
+    model_params : dict
+        Parameters for model initialization
+    edge_threshold : float
+        Minimum edge required to trade (default: 0.12)
+    position_size_pct : float
+        Fraction of capital per trade (default: 0.03)
+    fee_rate : float
+        Kalshi fee rate on profits (default: 0.07)
+    transaction_cost_rate : float
+        Additional transaction cost (default: 0.01)
+    slippage : float
+        Price slippage (default: 0.02)
+    min_train_window : int
+        Minimum historical calls for training (default: 4)
+    """
+
+    def __init__(
+        self,
+        features: pd.DataFrame,
+        outcomes: pd.DataFrame,
+        model_class: type,
+        model_params: dict = None,
+        edge_threshold: float = 0.12,
+        position_size_pct: float = 0.03,
+        fee_rate: float = 0.07,
+        transaction_cost_rate: float = 0.01,
+        slippage: float = 0.02,
+        min_train_window: int = 4,
+        yes_edge_threshold: Optional[float] = 0.22,
+        no_edge_threshold: Optional[float] = 0.08,
+        min_yes_probability: float = 0.65,
+        max_no_probability: float = 0.35,
+    ):
+        self.features = features.sort_index()
+        self.outcomes = outcomes.sort_index()
+        self.model_class = model_class
+        self.model_params = model_params or {}
+        self.edge_threshold = edge_threshold
+        self.position_size_pct = position_size_pct
+        self.fee_rate = fee_rate
+        self.transaction_cost_rate = transaction_cost_rate
+        self.slippage = slippage
+        self.min_train_window = min_train_window
+        self.yes_edge_threshold = yes_edge_threshold
+        self.no_edge_threshold = no_edge_threshold
+        self.min_yes_probability = min_yes_probability
+        self.max_no_probability = max_no_probability
+
+    def run(
+        self,
+        ticker: str,
+        initial_capital: float = 10000.0,
+        market_prices: Optional[pd.DataFrame] = None,
+    ) -> BacktestResult:
+        """
+        Run walk-forward backtest.
+
+        Parameters
+        ----------
+        ticker : str
+            Company stock ticker
+        initial_capital : float
+            Starting capital
+        market_prices : Optional[pd.DataFrame]
+            Historical Kalshi market prices (if available)
+            Index = call_date, columns = contract names, values = 0-1 prices
+
+        Returns
+        -------
+        BacktestResult
+            Complete backtest results
+        """
+        capital = initial_capital
+        predictions = []
+        trades = []
+
+        # Get earnings call dates
+        call_dates = sorted(self.features.index)
+
+        # Get contract names from outcomes
+        contracts = list(self.outcomes.columns)
+
+        # Walk forward through earnings calls
+        for i, current_date in enumerate(call_dates):
+            # Skip if not enough historical data
+            if i < self.min_train_window:
+                continue
+
+            # Train on all previous calls
+            train_features = self.features.iloc[:i]
+            train_outcomes = self.outcomes.iloc[:i]
+
+            # Fit model for each contract
+            for contract in contracts:
+                # Get training data for this contract
+                y_train = train_outcomes[contract]
+
+                # Skip if no variation in training data
+                if y_train.nunique() < 2:
+                    continue
+
+                # Fit model
+                model = self.model_class(**self.model_params)
+                model.fit(train_features, y_train)
+
+                # Make prediction
+                current_features = self.features.loc[[current_date]]
+                pred = model.predict(current_features)
+
+                predicted_prob = float(pred.iloc[0]["probability"])
+                lower_bound = float(pred.iloc[0]["lower_bound"])
+                upper_bound = float(pred.iloc[0]["upper_bound"])
+
+                # Get actual outcome
+                actual_outcome = int(self.outcomes.loc[current_date, contract])
+
+                # Get market price (if available)
+                market_price = None
+                if market_prices is not None and contract in market_prices.columns:
+                    try:
+                        market_price = float(market_prices.loc[current_date, contract])
+                    except (KeyError, ValueError):
+                        pass
+
+                # If no market price, use simple random baseline (50%)
+                if market_price is None:
+                    market_price = 0.5
+
+                # Calculate edge
+                edge = predicted_prob - market_price
+
+                # Determine if prediction was correct
+                predicted_yes = predicted_prob > 0.5
+                correct = (predicted_yes and actual_outcome == 1) or (not predicted_yes and actual_outcome == 0)
+
+                # Create prediction
+                prediction = EarningsPrediction(
+                    ticker=ticker,
+                    call_date=str(current_date),
+                    contract=contract,
+                    predicted_probability=predicted_prob,
+                    confidence_lower=lower_bound,
+                    confidence_upper=upper_bound,
+                    actual_outcome=actual_outcome,
+                    market_price=market_price,
+                    edge=edge,
+                    correct=correct,
+                )
+                predictions.append(prediction)
+
+                # Trading logic (same as FOMC backtester_v3)
+                if edge > 0:
+                    side = "YES"
+                    if predicted_prob < self.min_yes_probability:
+                        continue
+                    required_edge = self.yes_edge_threshold if self.yes_edge_threshold else self.edge_threshold
+                    if edge < required_edge:
+                        continue
+                    raw_entry_price = market_price
+                elif edge < 0:
+                    side = "NO"
+                    if predicted_prob > self.max_no_probability:
+                        continue
+                    required_edge = self.no_edge_threshold if self.no_edge_threshold else self.edge_threshold
+                    if abs(edge) < required_edge:
+                        continue
+                    raw_entry_price = 1 - market_price
+                else:
+                    continue
+
+                # Adjust for slippage
+                entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
+
+                # Position sizing
+                position_size = capital * self.position_size_pct
+                if position_size <= 0:
+                    continue
+
+                # Calculate P&L
+                if side == "YES":
+                    if actual_outcome == 1:
+                        gross_pnl = position_size * (1 - entry_price) / entry_price
+                        fees = gross_pnl * self.fee_rate
+                        pnl = gross_pnl - fees
+                    else:
+                        pnl = -position_size
+                else:  # NO
+                    if actual_outcome == 0:
+                        gross_pnl = position_size * entry_price / (1 - entry_price)
+                        fees = gross_pnl * self.fee_rate
+                        pnl = gross_pnl - fees
+                    else:
+                        pnl = -position_size
+
+                # Transaction costs
+                pnl -= position_size * self.transaction_cost_rate
+
+                # Update capital
+                capital += pnl
+                roi = pnl / position_size if position_size > 0 else 0
+
+                # Record trade
+                trade = Trade(
+                    ticker=ticker,
+                    call_date=str(current_date),
+                    contract=contract,
+                    side=side,
+                    position_size=position_size,
+                    entry_price=entry_price,
+                    predicted_probability=predicted_prob,
+                    edge=edge,
+                    actual_outcome=actual_outcome,
+                    pnl=pnl,
+                    roi=roi,
+                )
+                trades.append(trade)
+
+        # Calculate metrics
+        metrics = self._calculate_metrics(predictions, trades, initial_capital, capital)
+
+        # Create result
+        result = BacktestResult(
+            predictions=predictions,
+            trades=trades,
+            metrics=metrics,
+            metadata={
+                "ticker": ticker,
+                "model_class": self.model_class.__name__,
+                "model_params": self.model_params,
+                "initial_capital": initial_capital,
+                "final_capital": capital,
+                "edge_threshold": self.edge_threshold,
+                "position_size_pct": self.position_size_pct,
+                "fee_rate": self.fee_rate,
+            },
+        )
+
+        return result
+
+    def _calculate_metrics(
+        self,
+        predictions: List[EarningsPrediction],
+        trades: List[Trade],
+        initial_capital: float,
+        final_capital: float,
+    ) -> BacktestMetrics:
+        """Calculate backtest metrics."""
+        # Prediction metrics
+        total_predictions = len(predictions)
+        correct_predictions = sum(1 for p in predictions if p.correct)
+        accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
+
+        # Trading metrics
+        total_trades = len(trades)
+        winning_trades = sum(1 for t in trades if t.pnl > 0)
+        win_rate = winning_trades / total_trades if total_trades > 0 else 0
+
+        total_pnl = sum(t.pnl for t in trades)
+        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+
+        roi = (final_capital - initial_capital) / initial_capital if initial_capital > 0 else 0
+
+        # Sharpe ratio
+        if trades:
+            returns = [t.roi for t in trades]
+            sharpe = np.mean(returns) / np.std(returns) * np.sqrt(len(returns)) if np.std(returns) > 0 else 0
+        else:
+            sharpe = 0
+
+        # Brier score (calibration)
+        brier_scores = [
+            (p.predicted_probability - p.actual_outcome) ** 2
+            for p in predictions
+            if p.actual_outcome is not None
+        ]
+        brier_score = np.mean(brier_scores) if brier_scores else 0
+
+        return BacktestMetrics(
+            total_predictions=total_predictions,
+            correct_predictions=correct_predictions,
+            accuracy=accuracy,
+            total_trades=total_trades,
+            winning_trades=winning_trades,
+            win_rate=win_rate,
+            total_pnl=total_pnl,
+            avg_pnl_per_trade=avg_pnl,
+            roi=roi,
+            sharpe_ratio=sharpe,
+            brier_score=brier_score,
+        )
+
+
+def save_earnings_backtest_result(result: BacktestResult, output_dir: Path):
+    """Save backtest results to files."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save main results
+    data = {
+        "predictions": [asdict(p) for p in result.predictions],
+        "trades": [asdict(t) for t in result.trades],
+        "metrics": asdict(result.metrics),
+        "metadata": result.metadata,
+    }
+
+    (output_dir / "backtest_results.json").write_text(
+        json.dumps(data, indent=2, default=str)
+    )
+
+    # Save predictions CSV
+    if result.predictions:
+        pred_df = pd.DataFrame([asdict(p) for p in result.predictions])
+        pred_df.to_csv(output_dir / "predictions.csv", index=False)
+
+    # Save trades CSV
+    if result.trades:
+        trade_df = pd.DataFrame([asdict(t) for t in result.trades])
+        trade_df.to_csv(output_dir / "trades.csv", index=False)
+
+    print(f"Results saved to {output_dir}")
