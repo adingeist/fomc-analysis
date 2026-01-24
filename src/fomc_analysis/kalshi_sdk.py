@@ -26,7 +26,9 @@ PRIVATE_KEY_FILENAME = "kalshi_private_key.pem"
 
 def _decode_private_key(private_key_base64: str) -> bytes:
     try:
-        return base64.b64decode(private_key_base64, validate=True)
+        # Strip quotes if present (can happen with environment variables)
+        cleaned = private_key_base64.strip().strip('"').strip("'")
+        return base64.b64decode(cleaned, validate=True)
     except (ValueError, TypeError) as exc:
         raise ValueError("Invalid base64-encoded Kalshi private key.") from exc
 

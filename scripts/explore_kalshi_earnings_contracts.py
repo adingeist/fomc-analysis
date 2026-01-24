@@ -4,17 +4,17 @@ Explore Kalshi earnings mention contracts.
 This script checks what earnings call mention contracts are available on Kalshi.
 """
 
-import asyncio
 from pathlib import Path
 import json
+import re
 
 from fomc_analysis.kalshi_client_factory import get_kalshi_client
 
 
-async def explore_earnings_contracts():
+def explore_earnings_contracts():
     """Explore available earnings mention contracts on Kalshi."""
 
-    # Create client
+    # Create client (synchronous - it wraps async internally)
     client = get_kalshi_client()
 
     print("=" * 60)
@@ -32,44 +32,30 @@ async def explore_earnings_contracts():
 
     all_series = []
 
-    # Try to get all series and filter
-    try:
-        # This might need to be adapted based on the actual Kalshi API
-        series_list = await client.get_series()
+    # Try specific series tickers directly
+    # (Kalshi doesn't have a list-all-series endpoint)
+    print("  Trying direct series ticker lookup...")
 
-        for series in series_list:
-            ticker = series.get("ticker", "")
-            title = series.get("title", "")
+    # Try specific series tickers
+    known_series = [
+        "KXEARNINGSMENTIONMETA",
+        "KXEARNINGSMENTIONTSLA",
+        "KXEARNINGSMENTIONNVDA",
+        "KXEARNINGSMENTIONAMZN",
+        "KXEARNINGSMENTIONAAPL",
+        "KXEARNINGSMENTIONMSFT",
+        "KXEARNINGSMENTIONGOOGLUNNAMED",
+    ]
 
-            # Check if it's earnings-related
-            if any(pattern.lower() in ticker.lower() or pattern.lower() in title.lower()
-                   for pattern in earnings_series_patterns):
-                all_series.append(series)
-                print(f"  Found: {ticker} - {title}")
-
-    except Exception as e:
-        print(f"  Error getting series: {e}")
-        print("  Trying direct series ticker lookup...")
-
-        # Try specific series tickers
-        known_series = [
-            "KXEARNINGSMENTIONMETA",
-            "KXEARNINGSMENTIONTSLA",
-            "KXEARNINGSMENTIONNVDA",
-            "KXEARNINGSMENTIONAMZN",
-            "KXEARNINGSMENTIONAAPL",
-            "KXEARNINGSMENTIONMSFT",
-            "KXEARNINGSMENTIONgoogl",
-        ]
-
-        for series_ticker in known_series:
-            try:
-                markets = await client.get_markets(series_ticker=series_ticker)
-                if markets:
-                    print(f"  ✓ Found series: {series_ticker}")
-                    all_series.append({"ticker": series_ticker, "markets": markets})
-            except Exception as e:
-                print(f"  ✗ {series_ticker}: {e}")
+    for series_ticker in known_series:
+        try:
+            # Client methods are synchronous (no await needed)
+            markets = client.get_markets(series_ticker=series_ticker)
+            if markets:
+                print(f"  ✓ Found series: {series_ticker} ({len(markets)} markets)")
+                all_series.append({"ticker": series_ticker, "markets": markets})
+        except Exception as e:
+            print(f"  ✗ {series_ticker}: {e}")
 
     print(f"\n[2] Found {len(all_series)} earnings-related series")
 
@@ -84,35 +70,39 @@ async def explore_earnings_contracts():
         try:
             markets = series.get("markets")
             if not markets:
-                markets = await client.get_markets(series_ticker=series_ticker)
+                # No await - client is synchronous
+                markets = client.get_markets(series_ticker=series_ticker)
 
-            for market in markets[:5]:  # Show first 5
+            for market in markets[:10]:  # Show first 10
                 ticker = market.get("ticker", "")
                 title = market.get("title", "")
                 status = market.get("status", "")
 
+                # Extract word from custom_strike
+                custom_strike = market.get("custom_strike", {})
+                word = custom_strike.get("Word", None)
+
+                # Get pricing info
+                yes_bid = market.get("yes_bid", 0)
+                yes_ask = market.get("yes_ask", 0)
+                last_price = market.get("last_price", 0)
+
                 print(f"\n  Contract: {ticker}")
-                print(f"    Title: {title}")
-                print(f"    Status: {status}")
-
-                # Try to extract the tracked word and threshold
-                # Expected format: "Will [COMPANY CEO] say '[WORD]' at least [N] times?"
-                word_match = re.search(r"say ['\"](.+?)['\"]", title.lower())
-                threshold_match = re.search(r"at least (\d+)", title.lower())
-
-                word = word_match.group(1) if word_match else None
-                threshold = int(threshold_match.group(1)) if threshold_match else 1
-
                 print(f"    Word: {word}")
-                print(f"    Threshold: {threshold}")
+                print(f"    Status: {status}")
+                print(f"    Last Price: ${last_price/100:.2f} (bid: ${yes_bid/100:.2f}, ask: ${yes_ask/100:.2f})")
 
+                # Contracts are binary (mentioned vs not), threshold is always 1
                 contracts_summary.append({
                     "series": series_ticker,
                     "ticker": ticker,
                     "title": title,
                     "word": word,
-                    "threshold": threshold,
+                    "threshold": 1,  # Binary: mentioned at all
                     "status": status,
+                    "yes_bid": yes_bid / 100,  # Convert cents to dollars
+                    "yes_ask": yes_ask / 100,
+                    "last_price": last_price / 100,
                 })
 
         except Exception as e:
@@ -153,5 +143,4 @@ async def explore_earnings_contracts():
 
 
 if __name__ == "__main__":
-    import re
-    asyncio.run(explore_earnings_contracts())
+    explore_earnings_contracts()
