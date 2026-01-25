@@ -14,6 +14,13 @@ from .kalshi_market_data import (
     fetch_kalshi_market_data,
     fetch_multi_ticker_market_data,
 )
+from .kalshi_price_tracker import (
+    KalshiPriceTracker,
+    PriceEvolutionAnalyzer,
+    PriceSnapshot,
+    PriceHistory,
+    record_daily_prices,
+)
 
 __all__ = [
     "TranscriptFetcher",
@@ -28,4 +35,10 @@ __all__ = [
     "ContractMarketData",
     "fetch_kalshi_market_data",
     "fetch_multi_ticker_market_data",
+    # Price tracking
+    "KalshiPriceTracker",
+    "PriceEvolutionAnalyzer",
+    "PriceSnapshot",
+    "PriceHistory",
+    "record_daily_prices",
 ]

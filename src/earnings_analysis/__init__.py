@@ -28,6 +28,15 @@ from .kalshi import (
 from .kalshi.backtester import (
     EarningsKalshiBacktester,
     save_earnings_backtest_result,
+    create_market_prices_from_tracker,
+    run_backtest_with_historical_prices,
+)
+
+# Price tracking
+from .fetchers.kalshi_price_tracker import (
+    KalshiPriceTracker,
+    PriceEvolutionAnalyzer,
+    record_daily_prices,
 )
 
 # Models
@@ -48,5 +57,11 @@ __all__ = [
     "analyze_earnings_kalshi_contracts",
     "EarningsKalshiBacktester",
     "save_earnings_backtest_result",
+    "create_market_prices_from_tracker",
+    "run_backtest_with_historical_prices",
     "BetaBinomialEarningsModel",
+    # Price tracking
+    "KalshiPriceTracker",
+    "PriceEvolutionAnalyzer",
+    "record_daily_prices",
 ]
