@@ -42,7 +42,8 @@ from earnings_analysis.kalshi.enhanced_backtester import (
     EnhancedEarningsBacktester,
     save_enhanced_backtest_result,
 )
-from earnings_analysis.models import BetaBinomialEarningsModel
+from earnings_analysis.models import BetaBinomialEarningsModel, FeatureAwareEarningsModel
+from earnings_analysis.features.market_features import MarketFeatureExtractor
 from fomc_analysis.kalshi_client_factory import get_kalshi_client, KalshiSdkAdapter
 
 
@@ -54,11 +55,13 @@ class TrainingConfig:
     use_real_transcripts: bool = False
     use_real_contracts: bool = True
     use_enhanced_backtester: bool = False  # Use Kelly criterion & advanced features
+    use_market_features: bool = False  # Use stock/earnings features
 
     # Model parameters
     alpha_prior: float = 1.0
     beta_prior: float = 1.0
     half_life: float = 8.0
+    market_weight: float = 0.3  # Weight for market price signal
 
     # Trading parameters (basic backtester)
     edge_threshold: float = 0.12
@@ -409,21 +412,101 @@ class EarningsModelTrainer:
 
         return features_df, outcomes_df
 
+    def extract_market_features(
+        self,
+        call_dates: List[str],
+        outcomes_df: pd.DataFrame,
+    ) -> Optional[pd.DataFrame]:
+        """Extract stock and earnings features for each call date."""
+        if not self.config.use_market_features:
+            return None
+
+        self.log("\nExtracting market features (stock prices, earnings data)...")
+
+        try:
+            extractor = MarketFeatureExtractor(
+                cache_dir=self.output_dir / "market_cache",
+                use_cached=True,
+            )
+
+            records = []
+            for call_date in call_dates:
+                # Extract stock features
+                stock_features = extractor.calculate_stock_features(self.ticker, call_date)
+                earnings_features = extractor.calculate_earnings_features(self.ticker, call_date)
+
+                # Extract prior mention features for each word
+                for word in self.contract_words:
+                    mention_features = extractor.calculate_prior_mention_features(
+                        word, call_date, outcomes_df
+                    )
+
+                    record = {
+                        "call_date": call_date,
+                        "word": word,
+                        **stock_features,
+                        **earnings_features,
+                        **mention_features,
+                    }
+                    records.append(record)
+
+            market_features_df = pd.DataFrame(records)
+
+            # Log summary
+            if not market_features_df.empty:
+                self.log(f"Extracted {len(market_features_df)} feature records")
+
+                # Show feature availability
+                for col in ["stock_return_30d", "eps_surprise_last", "mentioned_last_call"]:
+                    if col in market_features_df.columns:
+                        non_null = market_features_df[col].notna().sum()
+                        self.log(f"  {col}: {non_null}/{len(market_features_df)} available")
+
+            return market_features_df
+
+        except Exception as e:
+            self.log(f"Warning: Could not extract market features: {e}", "warning")
+            return None
+
     def run_backtest(
         self,
         features_df: pd.DataFrame,
         outcomes_df: pd.DataFrame,
+        market_features_df: Optional[pd.DataFrame] = None,
     ) -> BacktestResult:
         """Run walk-forward backtest with configured parameters."""
         self.log("\n" + "=" * 60)
         self.log("RUNNING BACKTEST")
         self.log("=" * 60)
 
-        self.log(f"\nModel: BetaBinomialEarningsModel")
+        # Select model class based on configuration
+        if self.config.use_market_features and market_features_df is not None:
+            model_class = FeatureAwareEarningsModel
+            model_name = "FeatureAwareEarningsModel"
+            model_params = {
+                "alpha_prior": self.config.alpha_prior,
+                "beta_prior": self.config.beta_prior,
+                "half_life": self.config.half_life,
+                "market_weight": self.config.market_weight,
+                "use_features": True,
+            }
+        else:
+            model_class = BetaBinomialEarningsModel
+            model_name = "BetaBinomialEarningsModel"
+            model_params = {
+                "alpha_prior": self.config.alpha_prior,
+                "beta_prior": self.config.beta_prior,
+                "half_life": self.config.half_life,
+            }
+
+        self.log(f"\nModel: {model_name}")
         self.log(f"Parameters:")
         self.log(f"  alpha_prior: {self.config.alpha_prior}")
         self.log(f"  beta_prior: {self.config.beta_prior}")
         self.log(f"  half_life: {self.config.half_life}")
+        if self.config.use_market_features:
+            self.log(f"  market_weight: {self.config.market_weight}")
+            self.log(f"  market_features: ENABLED")
 
         if self.config.use_enhanced_backtester:
             self.log(f"\nUsing ENHANCED backtester with Kelly criterion")
@@ -439,12 +522,8 @@ class EarningsModelTrainer:
             backtester = EnhancedEarningsBacktester(
                 features=features_df,
                 outcomes=outcomes_df,
-                model_class=BetaBinomialEarningsModel,
-                model_params={
-                    "alpha_prior": self.config.alpha_prior,
-                    "beta_prior": self.config.beta_prior,
-                    "half_life": self.config.half_life,
-                },
+                model_class=model_class,
+                model_params=model_params,
                 kelly_fraction=self.config.kelly_fraction,
                 max_position_pct=self.config.max_position_pct,
                 confidence_scaling=self.config.confidence_scaling,
@@ -466,12 +545,8 @@ class EarningsModelTrainer:
             backtester = EarningsKalshiBacktester(
                 features=features_df,
                 outcomes=outcomes_df,
-                model_class=BetaBinomialEarningsModel,
-                model_params={
-                    "alpha_prior": self.config.alpha_prior,
-                    "beta_prior": self.config.beta_prior,
-                    "half_life": self.config.half_life,
-                },
+                model_class=model_class,
+                model_params=model_params,
                 edge_threshold=self.config.edge_threshold,
                 yes_edge_threshold=self.config.yes_edge_threshold,
                 no_edge_threshold=self.config.no_edge_threshold,
@@ -611,8 +686,13 @@ class EarningsModelTrainer:
         features_df.to_csv(self.output_dir / "features.csv")
         outcomes_df.to_csv(self.output_dir / "outcomes.csv")
 
+        # Step 4b: Extract market features (if enabled)
+        market_features_df = self.extract_market_features(call_dates, outcomes_df)
+        if market_features_df is not None:
+            market_features_df.to_csv(self.output_dir / "market_features.csv")
+
         # Step 5: Run backtest
-        backtest_result = self.run_backtest(features_df, outcomes_df)
+        backtest_result = self.run_backtest(features_df, outcomes_df, market_features_df)
 
         # Print results
         self.print_results(backtest_result)
@@ -804,6 +884,20 @@ Examples:
         help="Stop trading if drawdown exceeds this (default: 0.20)",
     )
 
+    # Market features options
+    parser.add_argument(
+        "--market-features",
+        action="store_true",
+        help="Enable stock/earnings external features (requires yfinance)",
+    )
+
+    parser.add_argument(
+        "--market-weight",
+        type=float,
+        default=0.3,
+        help="Weight for market price signal (0-1, default: 0.3)",
+    )
+
     return parser.parse_args()
 
 
@@ -818,9 +912,11 @@ async def main():
         use_real_transcripts=args.use_real_transcripts,
         use_real_contracts=not args.no_real_contracts,
         use_enhanced_backtester=args.enhanced,
+        use_market_features=args.market_features,
         alpha_prior=args.alpha_prior,
         beta_prior=args.beta_prior,
         half_life=args.half_life,
+        market_weight=args.market_weight,
         edge_threshold=args.edge_threshold,
         yes_edge_threshold=args.yes_edge_threshold,
         no_edge_threshold=args.no_edge_threshold,
