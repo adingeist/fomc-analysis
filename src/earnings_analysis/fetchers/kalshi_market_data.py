@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from fomc_analysis.kalshi_client_factory import KalshiClientProtocol, KalshiSdkAdapter
+from fomc_analysis.kalshi_client_factory import KalshiClientProtocol
 
 
 @dataclass
@@ -144,15 +144,9 @@ class KalshiMarketDataFetcher:
         all_contracts = []
 
         # Fetch all markets for this series
+        # Always use synchronous get_markets - the client handles async internally
         try:
-            if isinstance(self.client, KalshiSdkAdapter):
-                # Use async method if available
-                import asyncio
-                markets = asyncio.get_event_loop().run_until_complete(
-                    self.client.get_markets_async(series_ticker=series_ticker)
-                )
-            else:
-                markets = self.client.get_markets(series_ticker=series_ticker)
+            markets = self.client.get_markets(series_ticker=series_ticker)
         except Exception as e:
             print(f"Error fetching markets for {series_ticker}: {e}")
             return []

@@ -246,7 +246,7 @@ class EarningsModelTrainer:
 
         return self.contracts
 
-    def fetch_real_market_data(self) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    async def fetch_real_market_data(self) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Fetch real market prices and outcomes from Kalshi.
 
@@ -258,16 +258,21 @@ class EarningsModelTrainer:
 
         self.log("\nFetching real market data from Kalshi...")
 
-        try:
+        def _fetch_sync():
+            """Run fetching in a thread to avoid event loop conflicts."""
             client = get_kalshi_client()
             fetcher = KalshiMarketDataFetcher(
                 client,
                 cache_dir=self.output_dir / "kalshi_cache",
             )
+            return (
+                fetcher.get_market_prices_df(self.ticker),
+                fetcher.get_outcomes_df(self.ticker),
+            )
 
-            # Fetch market prices
-            market_prices_df = fetcher.get_market_prices_df(self.ticker)
-            outcomes_df = fetcher.get_outcomes_df(self.ticker)
+        try:
+            # Run in thread pool to avoid event loop conflicts
+            market_prices_df, outcomes_df = await asyncio.to_thread(_fetch_sync)
 
             if not market_prices_df.empty:
                 self.log(f"Fetched market prices: {market_prices_df.shape[0]} dates x {market_prices_df.shape[1]} words", "success")
@@ -765,7 +770,7 @@ class EarningsModelTrainer:
         kalshi_market_prices = None
         kalshi_outcomes = None
         if self.config.use_real_market_data:
-            kalshi_market_prices, kalshi_outcomes = self.fetch_real_market_data()
+            kalshi_market_prices, kalshi_outcomes = await self.fetch_real_market_data()
 
         # Step 2: Generate call dates
         # If we have real Kalshi data, use those dates; otherwise generate mock dates
