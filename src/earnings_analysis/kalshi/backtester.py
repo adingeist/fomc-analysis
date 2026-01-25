@@ -412,3 +412,152 @@ def save_earnings_backtest_result(result: BacktestResult, output_dir: Path):
         trade_df.to_csv(output_dir / "trades.csv", index=False)
 
     print(f"Results saved to {output_dir}")
+
+
+def create_market_prices_from_tracker(
+    ticker: str,
+    call_dates: List[str],
+    price_tracker=None,
+    price_data_dir: Optional[Path] = None,
+    lookback_days: int = 7,
+) -> pd.DataFrame:
+    """
+    Create market_prices DataFrame from historical price tracker data.
+
+    This function retrieves historical prices for each call date, using the
+    price that was available N days before the call (to avoid look-ahead bias).
+
+    Parameters
+    ----------
+    ticker : str
+        Company stock ticker
+    call_dates : List[str]
+        List of earnings call dates (YYYY-MM-DD format)
+    price_tracker : KalshiPriceTracker, optional
+        Price tracker instance (creates one if not provided)
+    price_data_dir : Path, optional
+        Directory with price history data
+    lookback_days : int
+        Number of days before call date to fetch prices (default: 7)
+        This simulates when you would place the trade.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = call_date, Columns = word names, Values = prices (0-1)
+        Compatible with EarningsKalshiBacktester.run(market_prices=...)
+    """
+    from ..fetchers.kalshi_price_tracker import KalshiPriceTracker
+
+    if price_tracker is None:
+        price_tracker = KalshiPriceTracker(data_dir=price_data_dir)
+
+    # Get all historical prices
+    history_df = price_tracker.get_price_history(ticker)
+
+    if history_df.empty:
+        print(f"No price history found for {ticker}")
+        return pd.DataFrame()
+
+    # Build market prices DataFrame
+    data = {}
+
+    for call_date in call_dates:
+        call_dt = pd.to_datetime(call_date)
+        # Get prices N days before the call
+        target_date = call_dt - pd.Timedelta(days=lookback_days)
+
+        # Get prices as of target date
+        prices = price_tracker.get_historical_prices_for_backtest(
+            ticker, target_date.strftime("%Y-%m-%d")
+        )
+
+        if prices:
+            data[call_date] = prices
+
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame.from_dict(data, orient="index")
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+
+    return df
+
+
+def run_backtest_with_historical_prices(
+    ticker: str,
+    features: pd.DataFrame,
+    outcomes: pd.DataFrame,
+    model_class: type,
+    model_params: dict = None,
+    price_data_dir: Optional[Path] = None,
+    lookback_days: int = 7,
+    **backtester_kwargs,
+) -> BacktestResult:
+    """
+    Run backtest using historical price tracker data.
+
+    This is a convenience function that:
+    1. Creates market_prices DataFrame from price tracker
+    2. Runs the backtest with those prices
+
+    Parameters
+    ----------
+    ticker : str
+        Company stock ticker
+    features : pd.DataFrame
+        Features dataframe (index = call_date, columns = feature names)
+    outcomes : pd.DataFrame
+        Contract outcomes (index = call_date, columns = contract names)
+    model_class : type
+        Model class for predictions
+    model_params : dict, optional
+        Parameters for model initialization
+    price_data_dir : Path, optional
+        Directory with price history data
+    lookback_days : int
+        Days before call to fetch prices (default: 7)
+    **backtester_kwargs
+        Additional arguments for EarningsKalshiBacktester
+
+    Returns
+    -------
+    BacktestResult
+        Complete backtest results with historical prices
+    """
+    # Get call dates from features
+    call_dates = [str(d.date()) if hasattr(d, 'date') else str(d)
+                  for d in features.index]
+
+    # Create market prices from tracker
+    market_prices = create_market_prices_from_tracker(
+        ticker=ticker,
+        call_dates=call_dates,
+        price_data_dir=price_data_dir,
+        lookback_days=lookback_days,
+    )
+
+    if market_prices.empty:
+        print(f"Warning: No historical prices found for {ticker}. "
+              "Using default 0.5 prices.")
+
+    # Create and run backtester
+    backtester = EarningsKalshiBacktester(
+        features=features,
+        outcomes=outcomes,
+        model_class=model_class,
+        model_params=model_params,
+        **backtester_kwargs,
+    )
+
+    result = backtester.run(
+        ticker=ticker,
+        market_prices=market_prices if not market_prices.empty else None,
+    )
+
+    # Add price metadata
+    result.metadata["price_lookback_days"] = lookback_days
+    result.metadata["historical_prices_used"] = not market_prices.empty
+
+    return result
