@@ -44,6 +44,11 @@ from earnings_analysis.kalshi.enhanced_backtester import (
 )
 from earnings_analysis.models import BetaBinomialEarningsModel, FeatureAwareEarningsModel
 from earnings_analysis.features.market_features import MarketFeatureExtractor
+from earnings_analysis.fetchers import (
+    KalshiMarketDataFetcher,
+    fetch_kalshi_market_data,
+)
+from earnings_analysis.processing import TranscriptProcessor, process_earnings_transcripts
 from fomc_analysis.kalshi_client_factory import get_kalshi_client, KalshiSdkAdapter
 
 
@@ -54,6 +59,7 @@ class TrainingConfig:
     num_quarters: int = 12
     use_real_transcripts: bool = False
     use_real_contracts: bool = True
+    use_real_market_data: bool = False  # Use real Kalshi market prices and outcomes
     use_enhanced_backtester: bool = False  # Use Kelly criterion & advanced features
     use_market_features: bool = False  # Use stock/earnings features
 
@@ -239,6 +245,101 @@ class EarningsModelTrainer:
         self.log(f"Created {len(self.contracts)} mock contracts: {', '.join(self.contract_words)}")
 
         return self.contracts
+
+    async def fetch_real_market_data(self) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+        """
+        Fetch real market prices and outcomes from Kalshi.
+
+        Returns:
+            tuple of (market_prices_df, outcomes_df) or (None, None) if unavailable
+        """
+        if not self.config.use_real_market_data:
+            return None, None
+
+        self.log("\nFetching real market data from Kalshi...")
+
+        def _fetch_sync():
+            """Run fetching in a thread to avoid event loop conflicts."""
+            client = get_kalshi_client()
+            fetcher = KalshiMarketDataFetcher(
+                client,
+                cache_dir=self.output_dir / "kalshi_cache",
+            )
+            return (
+                fetcher.get_market_prices_df(self.ticker),
+                fetcher.get_outcomes_df(self.ticker),
+            )
+
+        try:
+            # Run in thread pool to avoid event loop conflicts
+            market_prices_df, outcomes_df = await asyncio.to_thread(_fetch_sync)
+
+            if not market_prices_df.empty:
+                self.log(f"Fetched market prices: {market_prices_df.shape[0]} dates x {market_prices_df.shape[1]} words", "success")
+                self.market_prices = market_prices_df
+            else:
+                self.log("No market prices available from Kalshi", "warning")
+
+            if not outcomes_df.empty:
+                self.log(f"Fetched outcomes: {outcomes_df.shape[0]} dates x {outcomes_df.shape[1]} words", "success")
+            else:
+                self.log("No finalized outcomes available from Kalshi", "warning")
+
+            # Save to cache
+            if not market_prices_df.empty:
+                market_prices_df.to_csv(self.output_dir / "kalshi_market_prices.csv")
+            if not outcomes_df.empty:
+                outcomes_df.to_csv(self.output_dir / "kalshi_outcomes.csv")
+
+            return market_prices_df, outcomes_df
+
+        except Exception as e:
+            self.log(f"Error fetching real market data: {e}", "error")
+            return None, None
+
+    def fetch_real_transcripts(self, call_dates: List[str]) -> Optional[Path]:
+        """
+        Fetch real transcripts from SEC EDGAR.
+
+        Returns:
+            Path to segments directory, or None if fetching failed
+        """
+        if not self.config.use_real_transcripts:
+            return None
+
+        self.log("\nFetching real transcripts from SEC EDGAR...")
+
+        try:
+            processor = TranscriptProcessor(
+                output_dir=self.output_dir / "transcripts",
+                cache_dir=self.output_dir / "transcript_cache",
+            )
+
+            processed = processor.process_ticker(
+                ticker=self.ticker,
+                num_quarters=self.config.num_quarters,
+                words_to_track=self.contract_words,
+            )
+
+            if not processed:
+                self.log("No transcripts could be fetched", "warning")
+                return None
+
+            # Export to training format
+            features_path, segments_dir = processor.export_to_training_format(
+                processed,
+                self.contract_words,
+                output_dir=self.output_dir / "real_transcripts",
+            )
+
+            self.log(f"Processed {len(processed)} real transcripts", "success")
+            return segments_dir
+
+        except Exception as e:
+            self.log(f"Error fetching real transcripts: {e}", "error")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def generate_mock_transcripts(self, call_dates: List[str]) -> Path:
         """Generate mock earnings call transcripts for testing."""
@@ -653,6 +754,7 @@ class EarningsModelTrainer:
         print(f"  Ticker: {self.ticker}")
         print(f"  Quarters: {self.config.num_quarters}")
         print(f"  Use Real Transcripts: {self.config.use_real_transcripts}")
+        print(f"  Use Real Market Data: {self.config.use_real_market_data}")
         print(f"  Output Directory: {self.output_dir}")
 
         # Step 1: Discover contracts
@@ -664,29 +766,67 @@ class EarningsModelTrainer:
         else:
             contracts = self.generate_mock_contracts()
 
+        # Step 1b: Fetch real market data if enabled
+        kalshi_market_prices = None
+        kalshi_outcomes = None
+        if self.config.use_real_market_data:
+            kalshi_market_prices, kalshi_outcomes = await self.fetch_real_market_data()
+
         # Step 2: Generate call dates
-        base_date = datetime.now() - timedelta(days=self.config.num_quarters * 90)
-        call_dates = [
-            (base_date + timedelta(days=90 * i)).strftime("%Y-%m-%d")
-            for i in range(self.config.num_quarters)
-        ]
-        self.log(f"\nCall dates: {call_dates[0]} to {call_dates[-1]}")
+        # If we have real Kalshi data, use those dates; otherwise generate mock dates
+        if kalshi_outcomes is not None and not kalshi_outcomes.empty:
+            call_dates = [d.strftime("%Y-%m-%d") for d in kalshi_outcomes.index]
+            self.log(f"\nUsing {len(call_dates)} call dates from Kalshi data")
+        else:
+            base_date = datetime.now() - timedelta(days=self.config.num_quarters * 90)
+            call_dates = [
+                (base_date + timedelta(days=90 * i)).strftime("%Y-%m-%d")
+                for i in range(self.config.num_quarters)
+            ]
+        self.log(f"Call dates: {call_dates[0]} to {call_dates[-1]}")
 
         # Step 3: Load or generate transcripts
+        segments_dir = None
         if self.config.use_real_transcripts:
-            # TODO: Implement real transcript fetching
-            self.log("Real transcript fetching not yet implemented, using mock data", "warning")
+            segments_dir = self.fetch_real_transcripts(call_dates)
 
-        segments_dir = self.load_or_generate_transcripts(call_dates)
+        if segments_dir is None:
+            self.log("Using mock transcripts", "info")
+            segments_dir = self.load_or_generate_transcripts(call_dates)
 
         # Step 4: Analyze transcripts
         features_df, outcomes_df = self.analyze_transcripts(segments_dir, call_dates)
+
+        # Step 4a: Use real Kalshi outcomes if available
+        if kalshi_outcomes is not None and not kalshi_outcomes.empty:
+            self.log("\nUsing real Kalshi outcomes for ground truth", "success")
+            # Merge with transcript-based outcomes
+            # Prefer Kalshi outcomes where available
+            for word in kalshi_outcomes.columns:
+                if word in outcomes_df.columns:
+                    # Use Kalshi outcomes for dates where we have them
+                    for date in kalshi_outcomes.index:
+                        date_str = date.strftime("%Y-%m-%d") if hasattr(date, 'strftime') else str(date)
+                        if date_str in outcomes_df.index:
+                            outcomes_df.loc[date_str, word] = kalshi_outcomes.loc[date, word]
+                else:
+                    # Add new word column from Kalshi
+                    outcomes_df[word] = 0
+                    for date in kalshi_outcomes.index:
+                        date_str = date.strftime("%Y-%m-%d") if hasattr(date, 'strftime') else str(date)
+                        if date_str in outcomes_df.index:
+                            outcomes_df.loc[date_str, word] = kalshi_outcomes.loc[date, word]
+
+        # Step 4b: Use real Kalshi market prices if available
+        if kalshi_market_prices is not None and not kalshi_market_prices.empty:
+            self.log("Using real Kalshi market prices", "success")
+            self.market_prices = kalshi_market_prices
 
         # Save features and outcomes
         features_df.to_csv(self.output_dir / "features.csv")
         outcomes_df.to_csv(self.output_dir / "outcomes.csv")
 
-        # Step 4b: Extract market features (if enabled)
+        # Step 4c: Extract market features (if enabled)
         market_features_df = self.extract_market_features(call_dates, outcomes_df)
         if market_features_df is not None:
             market_features_df.to_csv(self.output_dir / "market_features.csv")
@@ -735,7 +875,8 @@ def parse_args():
 Examples:
     python scripts/train_earnings_model.py AAPL
     python scripts/train_earnings_model.py TSLA --num-quarters 16
-    python scripts/train_earnings_model.py META --half-life 6.0 --edge-threshold 0.15
+    python scripts/train_earnings_model.py META --use-real-data  # Real Kalshi prices
+    python scripts/train_earnings_model.py META --use-real-data --use-real-transcripts  # Full real data
     python scripts/train_earnings_model.py NVDA --no-real-contracts  # Use mock contracts
         """,
     )
@@ -763,6 +904,12 @@ Examples:
         "--no-real-contracts",
         action="store_true",
         help="Use mock contracts instead of checking Kalshi",
+    )
+
+    parser.add_argument(
+        "--use-real-data",
+        action="store_true",
+        help="Use real Kalshi market prices and outcomes (fetches from API)",
     )
 
     # Model parameters
@@ -911,6 +1058,7 @@ async def main():
         num_quarters=args.num_quarters,
         use_real_transcripts=args.use_real_transcripts,
         use_real_contracts=not args.no_real_contracts,
+        use_real_market_data=args.use_real_data,
         use_enhanced_backtester=args.enhanced,
         use_market_features=args.market_features,
         alpha_prior=args.alpha_prior,
