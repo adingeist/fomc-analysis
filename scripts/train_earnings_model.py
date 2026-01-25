@@ -38,6 +38,10 @@ from earnings_analysis.kalshi.backtester import (
     BacktestResult,
     save_earnings_backtest_result,
 )
+from earnings_analysis.kalshi.enhanced_backtester import (
+    EnhancedEarningsBacktester,
+    save_enhanced_backtest_result,
+)
 from earnings_analysis.models import BetaBinomialEarningsModel
 from fomc_analysis.kalshi_client_factory import get_kalshi_client, KalshiSdkAdapter
 
@@ -49,13 +53,14 @@ class TrainingConfig:
     num_quarters: int = 12
     use_real_transcripts: bool = False
     use_real_contracts: bool = True
+    use_enhanced_backtester: bool = False  # Use Kelly criterion & advanced features
 
     # Model parameters
     alpha_prior: float = 1.0
     beta_prior: float = 1.0
     half_life: float = 8.0
 
-    # Trading parameters
+    # Trading parameters (basic backtester)
     edge_threshold: float = 0.12
     yes_edge_threshold: float = 0.22
     no_edge_threshold: float = 0.08
@@ -63,6 +68,13 @@ class TrainingConfig:
     fee_rate: float = 0.07
     min_train_window: int = 4
     initial_capital: float = 10000.0
+
+    # Enhanced backtester parameters
+    kelly_fraction: float = 0.25  # Fraction of Kelly to bet (quarter Kelly)
+    max_position_pct: float = 0.10  # Max position size
+    confidence_scaling: bool = True  # Scale by model confidence
+    correlation_limit: float = 0.25  # Max correlated exposure
+    max_drawdown_limit: float = 0.20  # Stop if drawdown exceeds
 
     # Output
     output_dir: Path = Path("data/training")
@@ -412,30 +424,61 @@ class EarningsModelTrainer:
         self.log(f"  alpha_prior: {self.config.alpha_prior}")
         self.log(f"  beta_prior: {self.config.beta_prior}")
         self.log(f"  half_life: {self.config.half_life}")
-        self.log(f"\nTrading parameters:")
-        self.log(f"  edge_threshold: {self.config.edge_threshold}")
-        self.log(f"  yes_edge_threshold: {self.config.yes_edge_threshold}")
-        self.log(f"  no_edge_threshold: {self.config.no_edge_threshold}")
-        self.log(f"  position_size_pct: {self.config.position_size_pct}")
-        self.log(f"  initial_capital: ${self.config.initial_capital:,.2f}")
 
-        # Create backtester
-        backtester = EarningsKalshiBacktester(
-            features=features_df,
-            outcomes=outcomes_df,
-            model_class=BetaBinomialEarningsModel,
-            model_params={
-                "alpha_prior": self.config.alpha_prior,
-                "beta_prior": self.config.beta_prior,
-                "half_life": self.config.half_life,
-            },
-            edge_threshold=self.config.edge_threshold,
-            yes_edge_threshold=self.config.yes_edge_threshold,
-            no_edge_threshold=self.config.no_edge_threshold,
-            position_size_pct=self.config.position_size_pct,
-            fee_rate=self.config.fee_rate,
-            min_train_window=self.config.min_train_window,
-        )
+        if self.config.use_enhanced_backtester:
+            self.log(f"\nUsing ENHANCED backtester with Kelly criterion")
+            self.log(f"Enhanced parameters:")
+            self.log(f"  kelly_fraction: {self.config.kelly_fraction} (of full Kelly)")
+            self.log(f"  max_position_pct: {self.config.max_position_pct:.1%}")
+            self.log(f"  confidence_scaling: {self.config.confidence_scaling}")
+            self.log(f"  correlation_limit: {self.config.correlation_limit:.1%}")
+            self.log(f"  max_drawdown_limit: {self.config.max_drawdown_limit:.1%}")
+            self.log(f"  yes_edge_threshold: {self.config.yes_edge_threshold}")
+            self.log(f"  no_edge_threshold: {self.config.no_edge_threshold}")
+
+            backtester = EnhancedEarningsBacktester(
+                features=features_df,
+                outcomes=outcomes_df,
+                model_class=BetaBinomialEarningsModel,
+                model_params={
+                    "alpha_prior": self.config.alpha_prior,
+                    "beta_prior": self.config.beta_prior,
+                    "half_life": self.config.half_life,
+                },
+                kelly_fraction=self.config.kelly_fraction,
+                max_position_pct=self.config.max_position_pct,
+                confidence_scaling=self.config.confidence_scaling,
+                correlation_limit=self.config.correlation_limit,
+                max_drawdown_limit=self.config.max_drawdown_limit,
+                yes_edge_threshold=self.config.yes_edge_threshold,
+                no_edge_threshold=self.config.no_edge_threshold,
+                fee_rate=self.config.fee_rate,
+                min_train_window=self.config.min_train_window,
+            )
+        else:
+            self.log(f"\nTrading parameters:")
+            self.log(f"  edge_threshold: {self.config.edge_threshold}")
+            self.log(f"  yes_edge_threshold: {self.config.yes_edge_threshold}")
+            self.log(f"  no_edge_threshold: {self.config.no_edge_threshold}")
+            self.log(f"  position_size_pct: {self.config.position_size_pct}")
+            self.log(f"  initial_capital: ${self.config.initial_capital:,.2f}")
+
+            backtester = EarningsKalshiBacktester(
+                features=features_df,
+                outcomes=outcomes_df,
+                model_class=BetaBinomialEarningsModel,
+                model_params={
+                    "alpha_prior": self.config.alpha_prior,
+                    "beta_prior": self.config.beta_prior,
+                    "half_life": self.config.half_life,
+                },
+                edge_threshold=self.config.edge_threshold,
+                yes_edge_threshold=self.config.yes_edge_threshold,
+                no_edge_threshold=self.config.no_edge_threshold,
+                position_size_pct=self.config.position_size_pct,
+                fee_rate=self.config.fee_rate,
+                min_train_window=self.config.min_train_window,
+            )
 
         # Run backtest
         result = backtester.run(
@@ -452,6 +495,8 @@ class EarningsModelTrainer:
 
         print("\n" + "=" * 60)
         print(f"BACKTEST RESULTS: {self.ticker}")
+        if self.config.use_enhanced_backtester:
+            print("(Enhanced Backtester with Kelly Criterion)")
         print("=" * 60)
 
         print(f"\nPrediction Performance:")
@@ -469,14 +514,26 @@ class EarningsModelTrainer:
         print(f"  ROI: {metrics.roi:.1%}")
         print(f"  Sharpe Ratio: {metrics.sharpe_ratio:.2f}")
 
+        # Enhanced metrics (if available)
+        if hasattr(metrics, "max_drawdown"):
+            print(f"\nRisk Metrics (Enhanced):")
+            print(f"  Max Drawdown: {metrics.max_drawdown:.1%}")
+            print(f"  Calmar Ratio: {metrics.calmar_ratio:.2f}")
+            print(f"  Avg Kelly Fraction: {metrics.avg_kelly_fraction:.2%}")
+            print(f"  Calibration Error: {metrics.calibration_error:.3f}")
+
         # Show sample trades
         if result.trades:
             print(f"\nRecent Trades (last 5):")
             for trade in result.trades[-5:]:
                 outcome_str = "WIN" if trade.pnl > 0 else "LOSS"
+                # Check if enhanced trade
+                kelly_info = ""
+                if hasattr(trade, "kelly_fraction"):
+                    kelly_info = f" | Kelly: {trade.kelly_fraction:.1%}"
                 print(f"  {trade.call_date} | {trade.contract} | "
                       f"{trade.side} @ {trade.entry_price:.2f} | "
-                      f"Edge: {trade.edge:+.2f} | P&L: ${trade.pnl:+.2f} ({outcome_str})")
+                      f"Edge: {trade.edge:+.2f}{kelly_info} | P&L: ${trade.pnl:+.2f} ({outcome_str})")
 
     def save_results(self, training_result: TrainingResult):
         """Save all results to output directory."""
@@ -487,9 +544,12 @@ class EarningsModelTrainer:
         with open(results_file, "w") as f:
             json.dump(training_result.to_dict(), f, indent=2, default=str)
 
-        # Save backtest results using the backtester's save function
+        # Save backtest results using the appropriate save function
         backtest_dir = self.output_dir / "backtest"
-        save_earnings_backtest_result(training_result.backtest_result, backtest_dir)
+        if self.config.use_enhanced_backtester:
+            save_enhanced_backtest_result(training_result.backtest_result, backtest_dir)
+        else:
+            save_earnings_backtest_result(training_result.backtest_result, backtest_dir)
 
         # Save configuration
         config_file = self.output_dir / "config.json"
@@ -703,6 +763,47 @@ Examples:
         help="Suppress verbose output",
     )
 
+    # Enhanced backtester options
+    parser.add_argument(
+        "--enhanced",
+        action="store_true",
+        help="Use enhanced backtester with Kelly criterion sizing",
+    )
+
+    parser.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fraction of Kelly criterion to bet (default: 0.25 = quarter Kelly)",
+    )
+
+    parser.add_argument(
+        "--max-position",
+        type=float,
+        default=0.10,
+        help="Maximum position size as fraction of capital (default: 0.10)",
+    )
+
+    parser.add_argument(
+        "--no-confidence-scaling",
+        action="store_true",
+        help="Disable confidence-based position scaling",
+    )
+
+    parser.add_argument(
+        "--correlation-limit",
+        type=float,
+        default=0.25,
+        help="Maximum exposure to correlated contracts (default: 0.25)",
+    )
+
+    parser.add_argument(
+        "--max-drawdown",
+        type=float,
+        default=0.20,
+        help="Stop trading if drawdown exceeds this (default: 0.20)",
+    )
+
     return parser.parse_args()
 
 
@@ -716,6 +817,7 @@ async def main():
         num_quarters=args.num_quarters,
         use_real_transcripts=args.use_real_transcripts,
         use_real_contracts=not args.no_real_contracts,
+        use_enhanced_backtester=args.enhanced,
         alpha_prior=args.alpha_prior,
         beta_prior=args.beta_prior,
         half_life=args.half_life,
@@ -725,6 +827,11 @@ async def main():
         position_size_pct=args.position_size,
         initial_capital=args.initial_capital,
         min_train_window=args.min_train_window,
+        kelly_fraction=args.kelly_fraction,
+        max_position_pct=args.max_position,
+        confidence_scaling=not args.no_confidence_scaling,
+        correlation_limit=args.correlation_limit,
+        max_drawdown_limit=args.max_drawdown,
         output_dir=Path(args.output_dir),
         verbose=not args.quiet,
     )
