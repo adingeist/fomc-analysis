@@ -14,6 +14,7 @@ from .backtester import (
     BacktestMetrics,
     BacktestResult,
     save_earnings_backtest_result,
+    compute_backtest_significance,
     create_market_prices_from_tracker,
     run_backtest_with_historical_prices,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "BacktestMetrics",
     "BacktestResult",
     "save_earnings_backtest_result",
+    "compute_backtest_significance",
     "create_market_prices_from_tracker",
     "run_backtest_with_historical_prices",
 ]
