@@ -8,6 +8,10 @@ Key modules:
 - calibration: Price-to-win-rate calibration and edge correction
 - execution: Order placement optimization (maker vs taker, spread-aware)
 - statistical_tests: Significance testing for trading edge claims
+- trade_storage: Parquet-based storage for trade and market data
+- trade_fetcher: Kalshi API trade data fetching with checkpoint/resume
+- trade_analyzer: DuckDB analytical queries on trade data
+- regime: Market efficiency monitoring and adaptive thresholds
 """
 
 from .calibration import (
@@ -32,6 +36,24 @@ from .statistical_tests import (
     CalibrationResult,
 )
 
+from .trade_storage import (
+    ParquetStorage,
+    TradeRecord,
+    MarketRecord,
+)
+
+from .trade_fetcher import (
+    EarningsTradesFetcher,
+    EARNINGS_TICKERS,
+)
+
+from .regime import (
+    EfficiencyMonitor,
+    EfficiencyMetrics,
+    AdaptiveThresholds,
+    NewContractDetector,
+)
+
 __all__ = [
     # Calibration
     "KalshiCalibrationCurve",
@@ -49,4 +71,15 @@ __all__ = [
     "compute_brier_decomposition",
     "SignificanceResult",
     "CalibrationResult",
+    # Trade data pipeline
+    "ParquetStorage",
+    "TradeRecord",
+    "MarketRecord",
+    "EarningsTradesFetcher",
+    "EARNINGS_TICKERS",
+    # Regime monitoring
+    "EfficiencyMonitor",
+    "EfficiencyMetrics",
+    "AdaptiveThresholds",
+    "NewContractDetector",
 ]
