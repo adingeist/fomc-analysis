@@ -234,11 +234,19 @@ class EarningsKalshiBacktester:
                 # Market price in cents (used by calibration and spread filter)
                 market_cents = max(1, min(99, int(round(market_price * 100))))
 
-                # Calculate edge — use calibrated edge when available
+                # Calculate edge — use direction-aware calibrated edge when available
                 if self.calibration_curve is not None:
-                    edge = self.calibration_curve.calibrated_edge(
+                    # yes_adjusted_edge bakes in the YES overpricing penalty:
+                    #   yes_edge = model_prob - (calibrated_prob + yes_penalty)
+                    #   no_edge  = (1-model_prob) - (1 - calibrated_prob - yes_penalty)
+                    # The penalty makes YES harder to trigger (need stronger signal)
+                    # and NO easier to trigger (structural house advantage)
+                    yes_edge, _ = self.calibration_curve.yes_adjusted_edge(
                         predicted_prob, market_cents
                     )
+                    # yes_edge > 0 → model sees YES value despite penalty
+                    # yes_edge < 0 → NO side has edge (penalty works in our favor)
+                    edge = yes_edge
                 else:
                     edge = predicted_prob - market_price
 
@@ -281,10 +289,29 @@ class EarningsKalshiBacktester:
                 else:
                     continue
 
-                # Spread filter: reject trades where edge doesn't overcome spread
+                # Confluence filter: only trade when informational and
+                # structural edges agree (like the house, we want
+                # every trade to have compounding structural advantage)
+                if self.calibration_curve is not None:
+                    from ..microstructure.calibration import directional_bias_score
+                    bias = directional_bias_score(predicted_prob, market_cents)
+                    # YES trade needs positive bias (info + structure agree)
+                    # NO trade needs negative bias (info + structure agree)
+                    if side == "YES" and bias <= 0:
+                        continue
+                    if side == "NO" and bias >= 0:
+                        continue
+
+                # Spread filter: reject trades where edge doesn't overcome
+                # spread cost. Spread varies by price level — tighter at
+                # extremes (high-confidence outcomes), wider at mid-range.
                 if self.spread_filter is not None:
-                    # Estimate bid/ask from market price with default spread
-                    estimated_spread = 4  # cents
+                    if market_cents <= 15 or market_cents >= 85:
+                        estimated_spread = 2  # tight: confident outcomes
+                    elif market_cents <= 30 or market_cents >= 70:
+                        estimated_spread = 4  # moderate
+                    else:
+                        estimated_spread = 6  # wide: uncertain outcomes
                     bid_cents = max(1, market_cents - estimated_spread // 2)
                     ask_cents = min(99, market_cents + estimated_spread // 2)
                     if not self.spread_filter.should_trade(edge, bid_cents, ask_cents):
@@ -299,16 +326,16 @@ class EarningsKalshiBacktester:
                 else:
                     entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
 
-                # Position sizing with optional directional adjustment
+                # Position sizing — when microstructure is active, scale by
+                # edge magnitude so larger edges get proportionally larger bets
+                # (like a casino betting more on games with higher house edge)
                 base_size = capital * self.position_size_pct
                 if self.calibration_curve is not None:
-                    # Adjust size based on structural bias:
-                    # NO trades get a bonus (+15%), YES trades get a penalty (-10%)
-                    # Reflects empirical finding that NO side has more structural edge
-                    if side == "NO":
-                        base_size *= 1.15
-                    else:
-                        base_size *= 0.90
+                    # Scale position by how much edge exceeds the threshold.
+                    # Threshold edge → 1.0x, double threshold → 1.5x, capped at 2x.
+                    edge_ratio = abs(edge) / required_edge
+                    edge_scaler = min(2.0, 0.5 + 0.5 * edge_ratio)
+                    base_size *= edge_scaler
                 position_size = base_size
                 if position_size <= 0:
                     continue

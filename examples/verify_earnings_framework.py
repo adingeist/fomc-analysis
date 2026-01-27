@@ -299,6 +299,23 @@ def run_backtest(
         "half_life": 8.0,  # Weight recent calls more
     }
 
+    # Build realistic mock market prices so calibration effects
+    # are visible at different price levels (not just 50c midpoint).
+    np.random.seed(42)
+    call_dates = sorted(features_df.index)
+    contracts = list(outcomes_df.columns)
+    price_data = {}
+    # Assign different "market implied" probabilities per contract
+    base_prices = {"ai": 0.70, "cloud": 0.40, "revenue": 0.55, "margin": 0.35, "innovation": 0.85}
+    for c in contracts:
+        base = base_prices.get(c.lower(), 0.50)
+        # Add random noise per call date (±0.08)
+        price_data[c] = [
+            float(np.clip(base + np.random.uniform(-0.08, 0.08), 0.05, 0.95))
+            for _ in call_dates
+        ]
+    market_prices = pd.DataFrame(price_data, index=call_dates)
+
     # ── Basic backtest (no microstructure) ──
     print(f"\n{'='*60}")
     print("RUNNING BASIC BACKTEST (no microstructure)")
@@ -318,7 +335,7 @@ def run_backtest(
     result = backtester.run(
         ticker=ticker,
         initial_capital=10000.0,
-        market_prices=None,
+        market_prices=market_prices,
     )
 
     print(f"\nBasic Backtest Results for {ticker}:")
@@ -356,7 +373,7 @@ def run_backtest(
     micro_result = micro_backtester.run(
         ticker=ticker,
         initial_capital=10000.0,
-        market_prices=None,
+        market_prices=market_prices,
     )
 
     print(f"\nMicrostructure Backtest Results for {ticker}:")
