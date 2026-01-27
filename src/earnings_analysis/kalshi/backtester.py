@@ -132,6 +132,7 @@ class EarningsKalshiBacktester:
         calibration_curve: Optional["KalshiCalibrationCurve"] = None,
         execution_simulator: Optional["ExecutionSimulator"] = None,
         spread_filter: Optional["SpreadFilter"] = None,
+        require_variation: bool = True,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -150,6 +151,7 @@ class EarningsKalshiBacktester:
         self.calibration_curve = calibration_curve
         self.execution_simulator = execution_simulator
         self.spread_filter = spread_filter
+        self.require_variation = require_variation
 
     def run(
         self,
@@ -200,8 +202,8 @@ class EarningsKalshiBacktester:
                 # Get training data for this contract
                 y_train = train_outcomes[contract]
 
-                # Skip if no variation in training data
-                if y_train.nunique() < 2:
+                # Skip if no variation in training data (configurable)
+                if self.require_variation and y_train.nunique() < 2:
                     continue
 
                 # Fit model
