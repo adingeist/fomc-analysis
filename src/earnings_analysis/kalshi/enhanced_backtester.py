@@ -8,6 +8,7 @@ Key improvements over base backtester:
 4. Calibration tracking and adjustment
 5. Maximum drawdown protection
 6. Time-based features (earnings timing patterns)
+7. Microstructure calibration and execution simulation
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import json
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, TYPE_CHECKING
 import warnings
 
 import numpy as np
@@ -28,6 +29,10 @@ from .backtester import (
     BacktestMetrics,
     BacktestResult,
 )
+
+if TYPE_CHECKING:
+    from ..microstructure.calibration import KalshiCalibrationCurve
+    from ..microstructure.execution import ExecutionSimulator
 
 
 @dataclass
@@ -149,6 +154,8 @@ class EnhancedEarningsBacktester:
         transaction_cost_rate: float = 0.01,
         slippage: float = 0.02,
         min_train_window: int = 4,
+        calibration_curve: Optional["KalshiCalibrationCurve"] = None,
+        execution_simulator: Optional["ExecutionSimulator"] = None,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -177,6 +184,10 @@ class EnhancedEarningsBacktester:
         self.transaction_cost_rate = transaction_cost_rate
         self.slippage = slippage
         self.min_train_window = min_train_window
+
+        # Microstructure
+        self.calibration_curve = calibration_curve
+        self.execution_simulator = execution_simulator
 
         # State tracking
         self.recent_predictions: List[EarningsPrediction] = []
@@ -425,8 +436,15 @@ class EnhancedEarningsBacktester:
                     except (KeyError, ValueError):
                         pass
 
-                # Calculate edge using adjusted probability
-                edge = adjusted_prob - market_price
+                # Calculate edge — use microstructure calibration when available
+                if self.calibration_curve is not None:
+                    market_cents = int(round(market_price * 100))
+                    market_cents = max(1, min(99, market_cents))
+                    edge = self.calibration_curve.calibrated_edge(
+                        adjusted_prob, market_cents
+                    )
+                else:
+                    edge = adjusted_prob - market_price
 
                 predicted_yes = adjusted_prob > 0.5
                 correct = (predicted_yes and actual_outcome == 1) or (not predicted_yes and actual_outcome == 0)
@@ -496,8 +514,22 @@ class EnhancedEarningsBacktester:
                 if category:
                     call_exposure[category] = call_exposure.get(category, 0) + position_pct
 
-                # Adjust for slippage
-                entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
+                # Adjust for slippage / execution simulation
+                if self.execution_simulator is not None:
+                    entry_price = self.execution_simulator.adjust_backtest_entry_price(
+                        raw_entry_price, side,
+                        market_price_cents=int(round(market_price * 100)),
+                    )
+                else:
+                    entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
+
+                # Directional sizing: NO side gets structural edge bonus
+                if self.calibration_curve is not None:
+                    if side == "NO":
+                        position_pct *= 1.15
+                    else:
+                        position_pct *= 0.90
+                    position_pct = np.clip(position_pct, 0, self.max_position_pct)
 
                 # Calculate P&L
                 if side == "YES":
@@ -565,6 +597,18 @@ class EnhancedEarningsBacktester:
                 "correlation_limit": self.correlation_limit,
                 "max_drawdown_limit": self.max_drawdown_limit,
                 "trading_halted": trading_halted,
+                "microstructure": {
+                    "calibration_enabled": self.calibration_curve is not None,
+                    "calibration_gamma": (
+                        self.calibration_curve.gamma
+                        if self.calibration_curve is not None else None
+                    ),
+                    "execution_simulator_enabled": self.execution_simulator is not None,
+                    "execution_mode": (
+                        self.execution_simulator.mode.value
+                        if self.execution_simulator is not None else None
+                    ),
+                },
                 "calibration_bins": [
                     {"bin": f"{b.bin_start:.1f}-{b.bin_end:.1f}",
                      "predictions": b.predictions,

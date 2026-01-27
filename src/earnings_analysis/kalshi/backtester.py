@@ -8,6 +8,7 @@ This backtester:
 2. Trades Kalshi YES/NO contracts based on edge over market price
 3. Uses actual Kalshi contract outcomes for P&L calculation
 4. Provides walk-forward validation with no-lookahead guarantee
+5. Optionally applies microstructure calibration and execution simulation
 """
 
 from __future__ import annotations
@@ -16,10 +17,14 @@ import json
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ..microstructure.calibration import KalshiCalibrationCurve
+    from ..microstructure.execution import ExecutionSimulator
 
 
 @dataclass
@@ -124,6 +129,8 @@ class EarningsKalshiBacktester:
         no_edge_threshold: Optional[float] = 0.08,
         min_yes_probability: float = 0.65,
         max_no_probability: float = 0.35,
+        calibration_curve: Optional["KalshiCalibrationCurve"] = None,
+        execution_simulator: Optional["ExecutionSimulator"] = None,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -139,6 +146,8 @@ class EarningsKalshiBacktester:
         self.no_edge_threshold = no_edge_threshold
         self.min_yes_probability = min_yes_probability
         self.max_no_probability = max_no_probability
+        self.calibration_curve = calibration_curve
+        self.execution_simulator = execution_simulator
 
     def run(
         self,
@@ -220,8 +229,15 @@ class EarningsKalshiBacktester:
                 if market_price is None:
                     market_price = 0.5
 
-                # Calculate edge
-                edge = predicted_prob - market_price
+                # Calculate edge — use calibrated edge when available
+                if self.calibration_curve is not None:
+                    market_cents = int(round(market_price * 100))
+                    market_cents = max(1, min(99, market_cents))
+                    edge = self.calibration_curve.calibrated_edge(
+                        predicted_prob, market_cents
+                    )
+                else:
+                    edge = predicted_prob - market_price
 
                 # Determine if prediction was correct
                 predicted_yes = predicted_prob > 0.5
@@ -262,11 +278,26 @@ class EarningsKalshiBacktester:
                 else:
                     continue
 
-                # Adjust for slippage
-                entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
+                # Adjust for slippage / execution simulation
+                if self.execution_simulator is not None:
+                    entry_price = self.execution_simulator.adjust_backtest_entry_price(
+                        raw_entry_price, side,
+                        market_price_cents=int(round(market_price * 100)),
+                    )
+                else:
+                    entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
 
-                # Position sizing
-                position_size = capital * self.position_size_pct
+                # Position sizing with optional directional adjustment
+                base_size = capital * self.position_size_pct
+                if self.calibration_curve is not None:
+                    # Adjust size based on structural bias:
+                    # NO trades get a bonus (+15%), YES trades get a penalty (-10%)
+                    # Reflects empirical finding that NO side has more structural edge
+                    if side == "NO":
+                        base_size *= 1.15
+                    else:
+                        base_size *= 0.90
+                position_size = base_size
                 if position_size <= 0:
                     continue
 
@@ -326,6 +357,18 @@ class EarningsKalshiBacktester:
                 "edge_threshold": self.edge_threshold,
                 "position_size_pct": self.position_size_pct,
                 "fee_rate": self.fee_rate,
+                "microstructure": {
+                    "calibration_enabled": self.calibration_curve is not None,
+                    "calibration_gamma": (
+                        self.calibration_curve.gamma
+                        if self.calibration_curve is not None else None
+                    ),
+                    "execution_simulator_enabled": self.execution_simulator is not None,
+                    "execution_mode": (
+                        self.execution_simulator.mode.value
+                        if self.execution_simulator is not None else None
+                    ),
+                },
             },
         )
 
@@ -412,6 +455,55 @@ def save_earnings_backtest_result(result: BacktestResult, output_dir: Path):
         trade_df.to_csv(output_dir / "trades.csv", index=False)
 
     print(f"Results saved to {output_dir}")
+
+
+def compute_backtest_significance(result: BacktestResult) -> Dict:
+    """
+    Compute statistical significance of backtest results.
+
+    Uses microstructure statistical tests to determine if the observed
+    edge is real or likely due to noise.
+
+    Parameters
+    ----------
+    result : BacktestResult
+        Completed backtest results.
+
+    Returns
+    -------
+    dict
+        Statistical test results including significance, effect size,
+        YES/NO asymmetry, and Brier decomposition.
+    """
+    from ..microstructure.statistical_tests import (
+        test_edge_significance,
+        test_yes_no_asymmetry,
+        test_calibration,
+        compute_brier_decomposition,
+    )
+
+    stats = {}
+
+    # Overall edge significance
+    if result.trades:
+        returns = [t.roi for t in result.trades]
+        stats["edge_significance"] = test_edge_significance(returns)
+
+        # YES vs NO asymmetry
+        yes_returns = [t.roi for t in result.trades if t.side == "YES"]
+        no_returns = [t.roi for t in result.trades if t.side == "NO"]
+        if yes_returns and no_returns:
+            stats["yes_no_asymmetry"] = test_yes_no_asymmetry(yes_returns, no_returns)
+
+    # Calibration
+    if result.predictions:
+        preds = [p.predicted_probability for p in result.predictions if p.actual_outcome is not None]
+        outcomes = [p.actual_outcome for p in result.predictions if p.actual_outcome is not None]
+        if preds and outcomes:
+            stats["calibration"] = test_calibration(preds, outcomes)
+            stats["brier_decomposition"] = compute_brier_decomposition(preds, outcomes)
+
+    return stats
 
 
 def create_market_prices_from_tracker(

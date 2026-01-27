@@ -28,8 +28,24 @@ from .kalshi import (
 from .kalshi.backtester import (
     EarningsKalshiBacktester,
     save_earnings_backtest_result,
+    compute_backtest_significance,
     create_market_prices_from_tracker,
     run_backtest_with_historical_prices,
+)
+
+# Microstructure
+from .microstructure import (
+    KalshiCalibrationCurve,
+    calibrated_probability,
+    calibrated_edge,
+    directional_bias_score,
+    ExecutionSimulator,
+    SpreadFilter,
+    ExecutionMode,
+    test_edge_significance,
+    test_calibration,
+    test_multiple_edges,
+    compute_brier_decomposition,
 )
 
 # Price tracking
@@ -60,6 +76,19 @@ __all__ = [
     "create_market_prices_from_tracker",
     "run_backtest_with_historical_prices",
     "BetaBinomialEarningsModel",
+    "compute_backtest_significance",
+    # Microstructure
+    "KalshiCalibrationCurve",
+    "calibrated_probability",
+    "calibrated_edge",
+    "directional_bias_score",
+    "ExecutionSimulator",
+    "SpreadFilter",
+    "ExecutionMode",
+    "test_edge_significance",
+    "test_calibration",
+    "test_multiple_edges",
+    "compute_brier_decomposition",
     # Price tracking
     "KalshiPriceTracker",
     "PriceEvolutionAnalyzer",
