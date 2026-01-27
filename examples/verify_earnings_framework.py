@@ -30,6 +30,7 @@ from earnings_analysis.kalshi import (
 from earnings_analysis.kalshi.backtester import (
     EarningsKalshiBacktester,
     save_earnings_backtest_result,
+    create_microstructure_backtester,
 )
 from earnings_analysis.models import BetaBinomialEarningsModel
 
@@ -290,37 +291,54 @@ def run_backtest(
     outcomes_df: pd.DataFrame,
     output_dir: Path,
 ):
-    """Run backtest using Beta-Binomial model."""
+    """Run backtest using Beta-Binomial model (basic + microstructure)."""
 
+    model_params = {
+        "alpha_prior": 1.0,
+        "beta_prior": 1.0,
+        "half_life": 8.0,  # Weight recent calls more
+    }
+
+    # Build realistic mock market prices so calibration effects
+    # are visible at different price levels (not just 50c midpoint).
+    np.random.seed(42)
+    call_dates = sorted(features_df.index)
+    contracts = list(outcomes_df.columns)
+    price_data = {}
+    # Assign different "market implied" probabilities per contract
+    base_prices = {"ai": 0.70, "cloud": 0.40, "revenue": 0.55, "margin": 0.35, "innovation": 0.85}
+    for c in contracts:
+        base = base_prices.get(c.lower(), 0.50)
+        # Add random noise per call date (±0.08)
+        price_data[c] = [
+            float(np.clip(base + np.random.uniform(-0.08, 0.08), 0.05, 0.95))
+            for _ in call_dates
+        ]
+    market_prices = pd.DataFrame(price_data, index=call_dates)
+
+    # ── Basic backtest (no microstructure) ──
     print(f"\n{'='*60}")
-    print("RUNNING BACKTEST")
+    print("RUNNING BASIC BACKTEST (no microstructure)")
     print('='*60)
 
-    # Create backtester
     backtester = EarningsKalshiBacktester(
         features=features_df,
         outcomes=outcomes_df,
         model_class=BetaBinomialEarningsModel,
-        model_params={
-            "alpha_prior": 1.0,
-            "beta_prior": 1.0,
-            "half_life": 8.0,  # Weight recent calls more
-        },
+        model_params=model_params,
         edge_threshold=0.12,
         position_size_pct=0.03,
         fee_rate=0.07,
         min_train_window=4,
     )
 
-    # Run backtest (no market prices = use 50% baseline)
     result = backtester.run(
         ticker=ticker,
         initial_capital=10000.0,
-        market_prices=None,  # Will use 0.5 baseline
+        market_prices=market_prices,
     )
 
-    # Print results
-    print(f"\nBacktest Results for {ticker}:")
+    print(f"\nBasic Backtest Results for {ticker}:")
     print(f"  Predictions: {result.metrics.total_predictions}")
     print(f"  Accuracy: {result.metrics.accuracy:.1%}")
     print(f"  Brier Score: {result.metrics.brier_score:.3f}")
@@ -330,11 +348,61 @@ def run_backtest(
     print(f"  Total P&L: ${result.metrics.total_pnl:,.2f}")
     print(f"  ROI: {result.metrics.roi:.1%}")
     print(f"  Sharpe Ratio: {result.metrics.sharpe_ratio:.2f}")
+    print(f"  Microstructure: {result.metadata.get('microstructure', {})}")
 
-    # Save results
-    save_earnings_backtest_result(result, output_dir)
+    save_earnings_backtest_result(result, output_dir / "basic")
 
-    return result
+    # ── Microstructure-enhanced backtest ──
+    print(f"\n{'='*60}")
+    print("RUNNING MICROSTRUCTURE-ENHANCED BACKTEST")
+    print('='*60)
+
+    micro_backtester = create_microstructure_backtester(
+        features=features_df,
+        outcomes=outcomes_df,
+        model_class=BetaBinomialEarningsModel,
+        model_params=model_params,
+        execution_mode="hybrid",
+        spread_filter_min_net_edge=0.03,
+        edge_threshold=0.12,
+        position_size_pct=0.03,
+        fee_rate=0.07,
+        min_train_window=4,
+    )
+
+    micro_result = micro_backtester.run(
+        ticker=ticker,
+        initial_capital=10000.0,
+        market_prices=market_prices,
+    )
+
+    print(f"\nMicrostructure Backtest Results for {ticker}:")
+    print(f"  Predictions: {micro_result.metrics.total_predictions}")
+    print(f"  Accuracy: {micro_result.metrics.accuracy:.1%}")
+    print(f"  Brier Score: {micro_result.metrics.brier_score:.3f}")
+    print(f"\nTrading Results:")
+    print(f"  Total Trades: {micro_result.metrics.total_trades}")
+    print(f"  Win Rate: {micro_result.metrics.win_rate:.1%}")
+    print(f"  Total P&L: ${micro_result.metrics.total_pnl:,.2f}")
+    print(f"  ROI: {micro_result.metrics.roi:.1%}")
+    print(f"  Sharpe Ratio: {micro_result.metrics.sharpe_ratio:.2f}")
+    print(f"  Microstructure: {micro_result.metadata.get('microstructure', {})}")
+
+    save_earnings_backtest_result(micro_result, output_dir / "microstructure")
+
+    # ── Comparison ──
+    print(f"\n{'='*60}")
+    print("COMPARISON: Basic vs Microstructure-Enhanced")
+    print('='*60)
+    print(f"  {'Metric':<25} {'Basic':>12} {'Micro':>12} {'Delta':>12}")
+    print(f"  {'-'*61}")
+    print(f"  {'Total Trades':<25} {result.metrics.total_trades:>12} {micro_result.metrics.total_trades:>12} {micro_result.metrics.total_trades - result.metrics.total_trades:>+12}")
+    print(f"  {'Win Rate':<25} {result.metrics.win_rate:>11.1%} {micro_result.metrics.win_rate:>11.1%} {micro_result.metrics.win_rate - result.metrics.win_rate:>+11.1%}")
+    print(f"  {'Total P&L':<25} ${result.metrics.total_pnl:>10,.2f} ${micro_result.metrics.total_pnl:>10,.2f} ${micro_result.metrics.total_pnl - result.metrics.total_pnl:>+10,.2f}")
+    print(f"  {'ROI':<25} {result.metrics.roi:>11.1%} {micro_result.metrics.roi:>11.1%} {micro_result.metrics.roi - result.metrics.roi:>+11.1%}")
+    print(f"  {'Sharpe Ratio':<25} {result.metrics.sharpe_ratio:>12.2f} {micro_result.metrics.sharpe_ratio:>12.2f} {micro_result.metrics.sharpe_ratio - result.metrics.sharpe_ratio:>+12.2f}")
+
+    return micro_result
 
 
 def main():
@@ -437,18 +505,22 @@ def main():
     print(f"\n{'='*60}")
     print("VERIFICATION COMPLETE!")
     print('='*60)
-    print(f"\n✅ All framework components working correctly:")
-    print(f"  ✓ Mock Kalshi contracts created")
-    print(f"  ✓ Transcript segments generated")
-    print(f"  ✓ Word mentions analyzed")
-    print(f"  ✓ Features and outcomes extracted")
-    print(f"  ✓ Beta-Binomial model predictions made")
-    print(f"  ✓ Backtest completed successfully")
+    print(f"\nAll framework components working correctly:")
+    print(f"  - Mock Kalshi contracts created")
+    print(f"  - Transcript segments generated")
+    print(f"  - Word mentions analyzed")
+    print(f"  - Features and outcomes extracted")
+    print(f"  - Beta-Binomial model predictions made")
+    print(f"  - Basic backtest completed")
+    print(f"  - Microstructure-enhanced backtest completed")
+    print(f"    - Calibration curve (gamma={result.metadata['microstructure']['calibration_gamma']})")
+    print(f"    - Execution simulator ({result.metadata['microstructure']['execution_mode']})")
+    print(f"    - Spread filter (min_net_edge={result.metadata['microstructure']['spread_filter_min_net_edge']})")
     print(f"\nResults saved to: {OUTPUT_DIR}")
     print(f"\nNext Steps:")
-    print(f"  1. Add real Kalshi API credentials to .env")
-    print(f"  2. Fetch actual earnings call transcripts")
-    print(f"  3. Run real backtest with historical Kalshi data")
+    print(f"  1. Fetch actual earnings call transcripts")
+    print(f"  2. Run real backtest with historical Kalshi data")
+    print(f"  3. Tune microstructure parameters with real trade data")
 
 
 if __name__ == "__main__":

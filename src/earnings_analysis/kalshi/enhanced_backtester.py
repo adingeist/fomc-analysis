@@ -32,7 +32,7 @@ from .backtester import (
 
 if TYPE_CHECKING:
     from ..microstructure.calibration import KalshiCalibrationCurve
-    from ..microstructure.execution import ExecutionSimulator
+    from ..microstructure.execution import ExecutionSimulator, SpreadFilter
 
 
 @dataclass
@@ -156,6 +156,7 @@ class EnhancedEarningsBacktester:
         min_train_window: int = 4,
         calibration_curve: Optional["KalshiCalibrationCurve"] = None,
         execution_simulator: Optional["ExecutionSimulator"] = None,
+        spread_filter: Optional["SpreadFilter"] = None,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -188,6 +189,7 @@ class EnhancedEarningsBacktester:
         # Microstructure
         self.calibration_curve = calibration_curve
         self.execution_simulator = execution_simulator
+        self.spread_filter = spread_filter
 
         # State tracking
         self.recent_predictions: List[EarningsPrediction] = []
@@ -436,13 +438,19 @@ class EnhancedEarningsBacktester:
                     except (KeyError, ValueError):
                         pass
 
-                # Calculate edge — use microstructure calibration when available
+                # Market price in cents (used by calibration and spread filter)
+                market_cents = max(1, min(99, int(round(market_price * 100))))
+
+                # Calculate edge — use direction-aware calibrated edge when available
                 if self.calibration_curve is not None:
-                    market_cents = int(round(market_price * 100))
-                    market_cents = max(1, min(99, market_cents))
-                    edge = self.calibration_curve.calibrated_edge(
+                    # yes_adjusted_edge bakes in the YES overpricing penalty:
+                    #   yes_edge = model_prob - (calibrated_prob + yes_penalty)
+                    # The penalty makes YES harder to trigger and NO easier,
+                    # giving every NO trade a structural house advantage.
+                    yes_edge, _ = self.calibration_curve.yes_adjusted_edge(
                         adjusted_prob, market_cents
                     )
+                    edge = yes_edge
                 else:
                     edge = adjusted_prob - market_price
 
@@ -486,6 +494,31 @@ class EnhancedEarningsBacktester:
                 else:
                     continue
 
+                # Confluence filter: only trade when informational and
+                # structural edges agree (like the house, every trade
+                # should have compounding structural advantage)
+                if self.calibration_curve is not None:
+                    from ..microstructure.calibration import directional_bias_score
+                    bias = directional_bias_score(adjusted_prob, market_cents)
+                    if side == "YES" and bias <= 0:
+                        continue
+                    if side == "NO" and bias >= 0:
+                        continue
+
+                # Spread filter: reject trades where edge doesn't overcome
+                # spread cost. Spread varies by price level.
+                if self.spread_filter is not None:
+                    if market_cents <= 15 or market_cents >= 85:
+                        estimated_spread = 2  # tight: confident outcomes
+                    elif market_cents <= 30 or market_cents >= 70:
+                        estimated_spread = 4  # moderate
+                    else:
+                        estimated_spread = 6  # wide: uncertain outcomes
+                    bid_cents = max(1, market_cents - estimated_spread // 2)
+                    ask_cents = min(99, market_cents + estimated_spread // 2)
+                    if not self.spread_filter.should_trade(edge, bid_cents, ask_cents):
+                        continue
+
                 # Calculate optimal position size
                 kelly = self._calculate_kelly_fraction(adjusted_prob, market_price, side)
 
@@ -522,14 +555,6 @@ class EnhancedEarningsBacktester:
                     )
                 else:
                     entry_price = np.clip(raw_entry_price + self.slippage, 0.01, 0.99)
-
-                # Directional sizing: NO side gets structural edge bonus
-                if self.calibration_curve is not None:
-                    if side == "NO":
-                        position_pct *= 1.15
-                    else:
-                        position_pct *= 0.90
-                    position_pct = np.clip(position_pct, 0, self.max_position_pct)
 
                 # Calculate P&L
                 if side == "YES":
@@ -607,6 +632,11 @@ class EnhancedEarningsBacktester:
                     "execution_mode": (
                         self.execution_simulator.mode.value
                         if self.execution_simulator is not None else None
+                    ),
+                    "spread_filter_enabled": self.spread_filter is not None,
+                    "spread_filter_min_net_edge": (
+                        self.spread_filter.min_net_edge
+                        if self.spread_filter is not None else None
                     ),
                 },
                 "calibration_bins": [
