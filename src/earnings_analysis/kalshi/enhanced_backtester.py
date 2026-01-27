@@ -32,7 +32,7 @@ from .backtester import (
 
 if TYPE_CHECKING:
     from ..microstructure.calibration import KalshiCalibrationCurve
-    from ..microstructure.execution import ExecutionSimulator
+    from ..microstructure.execution import ExecutionSimulator, SpreadFilter
 
 
 @dataclass
@@ -156,6 +156,7 @@ class EnhancedEarningsBacktester:
         min_train_window: int = 4,
         calibration_curve: Optional["KalshiCalibrationCurve"] = None,
         execution_simulator: Optional["ExecutionSimulator"] = None,
+        spread_filter: Optional["SpreadFilter"] = None,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -188,6 +189,7 @@ class EnhancedEarningsBacktester:
         # Microstructure
         self.calibration_curve = calibration_curve
         self.execution_simulator = execution_simulator
+        self.spread_filter = spread_filter
 
         # State tracking
         self.recent_predictions: List[EarningsPrediction] = []
@@ -436,10 +438,11 @@ class EnhancedEarningsBacktester:
                     except (KeyError, ValueError):
                         pass
 
+                # Market price in cents (used by calibration and spread filter)
+                market_cents = max(1, min(99, int(round(market_price * 100))))
+
                 # Calculate edge — use microstructure calibration when available
                 if self.calibration_curve is not None:
-                    market_cents = int(round(market_price * 100))
-                    market_cents = max(1, min(99, market_cents))
                     edge = self.calibration_curve.calibrated_edge(
                         adjusted_prob, market_cents
                     )
@@ -485,6 +488,14 @@ class EnhancedEarningsBacktester:
                     raw_entry_price = 1 - market_price
                 else:
                     continue
+
+                # Spread filter: reject trades where edge doesn't overcome spread
+                if self.spread_filter is not None:
+                    estimated_spread = 4  # cents
+                    bid_cents = max(1, market_cents - estimated_spread // 2)
+                    ask_cents = min(99, market_cents + estimated_spread // 2)
+                    if not self.spread_filter.should_trade(edge, bid_cents, ask_cents):
+                        continue
 
                 # Calculate optimal position size
                 kelly = self._calculate_kelly_fraction(adjusted_prob, market_price, side)
@@ -607,6 +618,11 @@ class EnhancedEarningsBacktester:
                     "execution_mode": (
                         self.execution_simulator.mode.value
                         if self.execution_simulator is not None else None
+                    ),
+                    "spread_filter_enabled": self.spread_filter is not None,
+                    "spread_filter_min_net_edge": (
+                        self.spread_filter.min_net_edge
+                        if self.spread_filter is not None else None
                     ),
                 },
                 "calibration_bins": [

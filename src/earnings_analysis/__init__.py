@@ -31,6 +31,7 @@ from .kalshi.backtester import (
     compute_backtest_significance,
     create_market_prices_from_tracker,
     run_backtest_with_historical_prices,
+    create_microstructure_backtester,
 )
 
 # Microstructure
@@ -46,6 +47,9 @@ from .microstructure import (
     test_calibration,
     test_multiple_edges,
     compute_brier_decomposition,
+    EfficiencyMonitor,
+    AdaptiveThresholds,
+    NewContractDetector,
 )
 
 # Price tracking
@@ -75,6 +79,7 @@ __all__ = [
     "save_earnings_backtest_result",
     "create_market_prices_from_tracker",
     "run_backtest_with_historical_prices",
+    "create_microstructure_backtester",
     "BetaBinomialEarningsModel",
     "compute_backtest_significance",
     # Microstructure
@@ -89,6 +94,9 @@ __all__ = [
     "test_calibration",
     "test_multiple_edges",
     "compute_brier_decomposition",
+    "EfficiencyMonitor",
+    "AdaptiveThresholds",
+    "NewContractDetector",
     # Price tracking
     "KalshiPriceTracker",
     "PriceEvolutionAnalyzer",

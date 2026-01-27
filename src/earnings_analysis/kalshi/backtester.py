@@ -24,7 +24,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from ..microstructure.calibration import KalshiCalibrationCurve
-    from ..microstructure.execution import ExecutionSimulator
+    from ..microstructure.execution import ExecutionSimulator, SpreadFilter
 
 
 @dataclass
@@ -131,6 +131,7 @@ class EarningsKalshiBacktester:
         max_no_probability: float = 0.35,
         calibration_curve: Optional["KalshiCalibrationCurve"] = None,
         execution_simulator: Optional["ExecutionSimulator"] = None,
+        spread_filter: Optional["SpreadFilter"] = None,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -148,6 +149,7 @@ class EarningsKalshiBacktester:
         self.max_no_probability = max_no_probability
         self.calibration_curve = calibration_curve
         self.execution_simulator = execution_simulator
+        self.spread_filter = spread_filter
 
     def run(
         self,
@@ -229,10 +231,11 @@ class EarningsKalshiBacktester:
                 if market_price is None:
                     market_price = 0.5
 
+                # Market price in cents (used by calibration and spread filter)
+                market_cents = max(1, min(99, int(round(market_price * 100))))
+
                 # Calculate edge — use calibrated edge when available
                 if self.calibration_curve is not None:
-                    market_cents = int(round(market_price * 100))
-                    market_cents = max(1, min(99, market_cents))
                     edge = self.calibration_curve.calibrated_edge(
                         predicted_prob, market_cents
                     )
@@ -277,6 +280,15 @@ class EarningsKalshiBacktester:
                     raw_entry_price = 1 - market_price
                 else:
                     continue
+
+                # Spread filter: reject trades where edge doesn't overcome spread
+                if self.spread_filter is not None:
+                    # Estimate bid/ask from market price with default spread
+                    estimated_spread = 4  # cents
+                    bid_cents = max(1, market_cents - estimated_spread // 2)
+                    ask_cents = min(99, market_cents + estimated_spread // 2)
+                    if not self.spread_filter.should_trade(edge, bid_cents, ask_cents):
+                        continue
 
                 # Adjust for slippage / execution simulation
                 if self.execution_simulator is not None:
@@ -367,6 +379,11 @@ class EarningsKalshiBacktester:
                     "execution_mode": (
                         self.execution_simulator.mode.value
                         if self.execution_simulator is not None else None
+                    ),
+                    "spread_filter_enabled": self.spread_filter is not None,
+                    "spread_filter_min_net_edge": (
+                        self.spread_filter.min_net_edge
+                        if self.spread_filter is not None else None
                     ),
                 },
             },
@@ -653,3 +670,85 @@ def run_backtest_with_historical_prices(
     result.metadata["historical_prices_used"] = not market_prices.empty
 
     return result
+
+
+def create_microstructure_backtester(
+    features: pd.DataFrame,
+    outcomes: pd.DataFrame,
+    model_class: type,
+    model_params: dict = None,
+    execution_mode: str = "hybrid",
+    spread_filter_min_net_edge: float = 0.03,
+    spread_filter_max_spread: int = 15,
+    calibration_gamma: float = 1.064,
+    calibration_yes_penalty: float = 0.0048,
+    **backtester_kwargs,
+) -> EarningsKalshiBacktester:
+    """
+    Create a backtester with all microstructure components pre-wired.
+
+    This is the recommended way to create a backtester that uses calibration,
+    execution simulation, and spread filtering from the microstructure research.
+
+    Parameters
+    ----------
+    features : pd.DataFrame
+        Features dataframe (index = call_date, columns = feature names).
+    outcomes : pd.DataFrame
+        Contract outcomes (index = call_date, columns = contract names).
+    model_class : type
+        Model class for predictions.
+    model_params : dict, optional
+        Model initialization parameters.
+    execution_mode : str
+        Execution mode: "taker", "maker", or "hybrid" (default: "hybrid").
+    spread_filter_min_net_edge : float
+        Minimum edge after spread cost to trade (default: 0.03).
+    spread_filter_max_spread : int
+        Maximum spread in cents to trade (default: 15).
+    calibration_gamma : float
+        Logit-scaling parameter for calibration (default: 1.064).
+    calibration_yes_penalty : float
+        YES-side overpricing penalty (default: 0.0048).
+    **backtester_kwargs
+        Additional arguments for EarningsKalshiBacktester (e.g.,
+        edge_threshold, position_size_pct, fee_rate).
+
+    Returns
+    -------
+    EarningsKalshiBacktester
+        Backtester with microstructure components configured.
+    """
+    from ..microstructure.calibration import KalshiCalibrationCurve
+    from ..microstructure.execution import ExecutionSimulator, SpreadFilter, ExecutionMode
+
+    mode_map = {
+        "taker": ExecutionMode.TAKER,
+        "maker": ExecutionMode.MAKER,
+        "hybrid": ExecutionMode.HYBRID,
+    }
+
+    calibration_curve = KalshiCalibrationCurve(
+        gamma=calibration_gamma,
+        yes_penalty=calibration_yes_penalty,
+    )
+
+    execution_simulator = ExecutionSimulator(
+        mode=mode_map.get(execution_mode, ExecutionMode.HYBRID),
+    )
+
+    spread_filter = SpreadFilter(
+        min_net_edge=spread_filter_min_net_edge,
+        max_spread_cents=spread_filter_max_spread,
+    )
+
+    return EarningsKalshiBacktester(
+        features=features,
+        outcomes=outcomes,
+        model_class=model_class,
+        model_params=model_params,
+        calibration_curve=calibration_curve,
+        execution_simulator=execution_simulator,
+        spread_filter=spread_filter,
+        **backtester_kwargs,
+    )
