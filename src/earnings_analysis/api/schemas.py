@@ -116,6 +116,63 @@ class ContractsResponse(BaseModel):
     total_count: int
 
 
+# --- Word Frequencies ---
+
+
+class EarningsWordFrequencyRecord(BaseModel):
+    call_date: str
+    word: str
+    count: int
+    mentioned: bool
+
+
+class EarningsWordFrequencySeries(BaseModel):
+    word: str
+    frequencies: list[EarningsWordFrequencyRecord]
+    total_mentions: int
+    mention_rate: float
+
+
+class EarningsWordFrequenciesResponse(BaseModel):
+    ticker: str
+    words: list[EarningsWordFrequencySeries]
+    call_dates: list[str]
+    total_calls: int
+
+
+# --- Transcripts ---
+
+
+class EarningsTranscriptSegment(BaseModel):
+    segment_idx: int
+    speaker: str
+    role: str
+    text: str
+
+
+class EarningsTranscriptSummary(BaseModel):
+    ticker: str
+    call_date: str
+    total_segments: int
+    executive_segments: int
+    word_count: int
+    available: bool = True
+
+
+class EarningsTranscriptResponse(BaseModel):
+    ticker: str
+    call_date: str
+    segments: list[EarningsTranscriptSegment]
+    total_segments: int
+    executive_word_count: int
+
+
+class EarningsTranscriptsListResponse(BaseModel):
+    ticker: str
+    transcripts: list[EarningsTranscriptSummary]
+    total_transcripts: int
+
+
 # --- Health ---
 
 

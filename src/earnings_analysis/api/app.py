@@ -18,7 +18,14 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from earnings_analysis.api.routers import backtests, contracts, edges, predictions
+from earnings_analysis.api.routers import (
+    backtests,
+    contracts,
+    edges,
+    predictions,
+    transcripts,
+    word_frequencies,
+)
 from earnings_analysis.api.schemas import HealthResponse, ModelStatus
 from earnings_analysis.api.services.model_manager import KNOWN_TICKERS, ModelManager
 from fomc_analysis.kalshi_client_factory import get_kalshi_client
@@ -164,6 +171,8 @@ app.include_router(predictions.router, prefix="/api/v1/mentions/earnings")
 app.include_router(edges.router, prefix="/api/v1/mentions/earnings")
 app.include_router(backtests.router, prefix="/api/v1/mentions/earnings")
 app.include_router(contracts.router, prefix="/api/v1/mentions/earnings")
+app.include_router(word_frequencies.router, prefix="/api/v1/mentions/earnings")
+app.include_router(transcripts.router, prefix="/api/v1/mentions/earnings")
 
 # Include FOMC routers under /mentions/fomc
 app.include_router(fomc_predictions_router, prefix="/api/v1/mentions/fomc")
@@ -207,6 +216,8 @@ async def root():
         "endpoints": {
             "mentions/earnings": {
                 "predictions": "/api/v1/mentions/earnings/predictions/{ticker}",
+                "word_frequencies": "/api/v1/mentions/earnings/word-frequencies/{ticker}",
+                "transcripts": "/api/v1/mentions/earnings/transcripts/{ticker}",
                 "edges": "/api/v1/mentions/earnings/edges/{ticker}",
                 "backtests": "/api/v1/mentions/earnings/backtests/{ticker}",
                 "contracts": "/api/v1/mentions/earnings/contracts/{ticker}",
@@ -215,9 +226,9 @@ async def root():
                 "predictions": "/api/v1/mentions/fomc/predictions",
                 "word_frequencies": "/api/v1/mentions/fomc/word-frequencies",
                 "transcripts": "/api/v1/mentions/fomc/transcripts",
+                "edges": "/api/v1/mentions/fomc/edges",
                 "backtests": "/api/v1/mentions/fomc/backtests",
                 "contracts": "/api/v1/mentions/fomc/contracts",
-                "edges": "/api/v1/mentions/fomc/edges",
             },
         },
     }
