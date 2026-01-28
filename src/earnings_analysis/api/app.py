@@ -22,6 +22,7 @@ from earnings_analysis.api.routers import (
     backtests,
     contracts,
     edges,
+    events,
     predictions,
     transcripts,
     word_frequencies,
@@ -38,6 +39,7 @@ from fomc_analysis.api.routers import (
     backtests_router as fomc_backtests_router,
     contracts_router as fomc_contracts_router,
     edges_router as fomc_edges_router,
+    events_router as fomc_events_router,
 )
 from fomc_analysis.api.services import FOMCModelService, FOMCDataService
 
@@ -173,6 +175,7 @@ app.include_router(backtests.router, prefix="/api/v1/mentions/earnings")
 app.include_router(contracts.router, prefix="/api/v1/mentions/earnings")
 app.include_router(word_frequencies.router, prefix="/api/v1/mentions/earnings")
 app.include_router(transcripts.router, prefix="/api/v1/mentions/earnings")
+app.include_router(events.router, prefix="/api/v1/mentions/earnings")
 
 # Include FOMC routers under /mentions/fomc
 app.include_router(fomc_predictions_router, prefix="/api/v1/mentions/fomc")
@@ -181,6 +184,7 @@ app.include_router(fomc_transcripts_router, prefix="/api/v1/mentions/fomc")
 app.include_router(fomc_backtests_router, prefix="/api/v1/mentions/fomc")
 app.include_router(fomc_contracts_router, prefix="/api/v1/mentions/fomc")
 app.include_router(fomc_edges_router, prefix="/api/v1/mentions/fomc")
+app.include_router(fomc_events_router, prefix="/api/v1/mentions/fomc")
 
 
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
@@ -221,6 +225,8 @@ async def root():
                 "edges": "/api/v1/mentions/earnings/edges/{ticker}",
                 "backtests": "/api/v1/mentions/earnings/backtests/{ticker}",
                 "contracts": "/api/v1/mentions/earnings/contracts/{ticker}",
+                "events": "/api/v1/mentions/earnings/events",
+                "next_earnings": "/api/v1/mentions/earnings/events/{ticker}",
             },
             "mentions/fomc": {
                 "predictions": "/api/v1/mentions/fomc/predictions",
@@ -229,6 +235,8 @@ async def root():
                 "edges": "/api/v1/mentions/fomc/edges",
                 "backtests": "/api/v1/mentions/fomc/backtests",
                 "contracts": "/api/v1/mentions/fomc/contracts",
+                "events": "/api/v1/mentions/fomc/events",
+                "next_meeting": "/api/v1/mentions/fomc/events/next",
             },
         },
     }

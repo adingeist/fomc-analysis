@@ -6,6 +6,7 @@ from .transcripts import router as transcripts_router
 from .backtests import router as backtests_router
 from .contracts import router as contracts_router
 from .edges import router as edges_router
+from .events import router as events_router
 
 __all__ = [
     "predictions_router",
@@ -14,4 +15,5 @@ __all__ = [
     "backtests_router",
     "contracts_router",
     "edges_router",
+    "events_router",
 ]
