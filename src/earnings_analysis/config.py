@@ -48,6 +48,19 @@ class EarningsConfig(BaseModel):
     initial_capital: float = 10000.0
     position_size_pct: float = 0.05  # 5% per trade (higher than FOMC)
 
+    # Trading parameters (shared across all scripts)
+    edge_threshold: float = 0.10
+    half_life: float = 8.0
+    min_train_window: int = 3
+    fee_rate: float = 0.07
+    transaction_cost_rate: float = 0.01
+    paper_trade_position_size: float = 100.0  # dollars per paper trade
+
+    # Tracked tickers
+    tickers: list = Field(default_factory=lambda: [
+        "META", "TSLA", "NVDA", "AMZN", "AAPL", "MSFT", "NFLX",
+    ])
+
     class Config:
         """Pydantic config."""
         arbitrary_types_allowed = True
