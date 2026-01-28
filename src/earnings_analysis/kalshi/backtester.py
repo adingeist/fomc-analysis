@@ -132,6 +132,7 @@ class EarningsKalshiBacktester:
         calibration_curve: Optional["KalshiCalibrationCurve"] = None,
         execution_simulator: Optional["ExecutionSimulator"] = None,
         spread_filter: Optional["SpreadFilter"] = None,
+        require_variation: bool = True,
     ):
         self.features = features.sort_index()
         self.outcomes = outcomes.sort_index()
@@ -150,6 +151,7 @@ class EarningsKalshiBacktester:
         self.calibration_curve = calibration_curve
         self.execution_simulator = execution_simulator
         self.spread_filter = spread_filter
+        self.require_variation = require_variation
 
     def run(
         self,
@@ -197,16 +199,20 @@ class EarningsKalshiBacktester:
 
             # Fit model for each contract
             for contract in contracts:
-                # Get training data for this contract
-                y_train = train_outcomes[contract]
+                # Get training data for this contract (drop NaN/unknown)
+                y_train = train_outcomes[contract].dropna()
 
-                # Skip if no variation in training data
-                if y_train.nunique() < 2:
+                if len(y_train) == 0:
                     continue
 
-                # Fit model
+                # Skip if no variation in training data (configurable)
+                if self.require_variation and y_train.nunique() < 2:
+                    continue
+
+                # Fit model with cleaned training data
                 model = self.model_class(**self.model_params)
-                model.fit(train_features, y_train)
+                x_train = train_features.loc[y_train.index]
+                model.fit(x_train, y_train)
 
                 # Make prediction
                 current_features = self.features.loc[[current_date]]
@@ -216,8 +222,11 @@ class EarningsKalshiBacktester:
                 lower_bound = float(pred.iloc[0]["lower_bound"])
                 upper_bound = float(pred.iloc[0]["upper_bound"])
 
-                # Get actual outcome
-                actual_outcome = int(self.outcomes.loc[current_date, contract])
+                # Get actual outcome (skip if unknown / NaN)
+                raw_outcome = self.outcomes.loc[current_date, contract]
+                if pd.isna(raw_outcome):
+                    continue
+                actual_outcome = int(raw_outcome)
 
                 # Get market price (if available)
                 market_price = None
