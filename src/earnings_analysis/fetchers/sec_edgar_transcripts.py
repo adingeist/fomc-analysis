@@ -284,26 +284,72 @@ class SECEdgarFetcher:
         directory = index_data.get("directory", {})
         items = directory.get("item", [])
 
+        # Skip patterns: XBRL, XML, CSS, JS, index files, images
+        skip_patterns = (
+            ".xsd", ".xml", ".css", ".js", ".jpg", ".png", ".gif",
+            ".zip", ".json", "index", "filesummary", "metalinks",
+            "report.css", "show.js", "r1.htm", "r2.htm",
+        )
+
+        # Find exhibit HTML files — press releases are typically:
+        # - Named with "ex99", "ex-99", "exhibit", or "press"
+        # - The largest .htm/.html file that's not the primary 8-K document
+        # Company naming varies widely (AAPL: "a8-kex991...", META: "ex-99.1...")
+        exhibit_candidates = []
+
         for item in items:
-            name = item.get("name", "").lower()
-            doc_type = item.get("type", "").lower()
+            name = item.get("name", "")
+            name_lower = name.lower()
+            size = item.get("size", "0")
 
-            # Press releases are usually EX-99.1
-            if "ex-99" in name or "exhibit" in name:
-                exhibit_url = (
-                    f"https://www.sec.gov/Archives/edgar/data/"
-                    f"{cik.lstrip('0')}/{accession_clean}/{item['name']}"
-                )
+            # Skip non-HTML files and infrastructure files
+            if not any(name_lower.endswith(ext) for ext in (".htm", ".html", ".txt")):
+                continue
+            if any(pat in name_lower for pat in skip_patterns):
+                continue
 
-                # Check if it's a press release or transcript
-                if any(ext in name for ext in [".htm", ".html", ".txt"]):
-                    info.has_press_release = True
-                    info.press_release_url = exhibit_url
+            exhibit_url = (
+                f"https://www.sec.gov/Archives/edgar/data/"
+                f"{cik.lstrip('0')}/{accession_clean}/{name}"
+            )
 
-                    # Some companies file full transcripts as exhibits
-                    if "transcript" in name or "conference" in name:
-                        info.has_transcript = True
-                        info.transcript_url = exhibit_url
+            # Check for exhibit indicators in filename
+            is_exhibit = any(
+                pat in name_lower
+                for pat in ("ex99", "ex-99", "exhibit", "press", "earnings")
+            )
+
+            try:
+                file_size = int(size) if size else 0
+            except (ValueError, TypeError):
+                file_size = 0
+
+            exhibit_candidates.append({
+                "name": name,
+                "url": exhibit_url,
+                "is_exhibit": is_exhibit,
+                "size": file_size,
+            })
+
+        if not exhibit_candidates:
+            return
+
+        # Prefer explicitly-named exhibits; fall back to the largest HTML file
+        # (the primary 8-K is usually smaller than the press release)
+        explicit = [c for c in exhibit_candidates if c["is_exhibit"]]
+        if explicit:
+            best = max(explicit, key=lambda c: c["size"])
+        else:
+            # Take the largest HTML file as probable press release
+            best = max(exhibit_candidates, key=lambda c: c["size"])
+
+        info.has_press_release = True
+        info.press_release_url = best["url"]
+
+        # Check for transcript indicators
+        if any(kw in best["name"].lower() for kw in ("transcript", "conference")):
+            info.has_transcript = True
+            info.transcript_url = best["url"]
 
     def download_press_release(self, filing: EarningsFilingInfo) -> Optional[str]:
         """Download and extract text from a press release exhibit."""

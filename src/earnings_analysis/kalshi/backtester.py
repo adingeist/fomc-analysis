@@ -199,16 +199,20 @@ class EarningsKalshiBacktester:
 
             # Fit model for each contract
             for contract in contracts:
-                # Get training data for this contract
-                y_train = train_outcomes[contract]
+                # Get training data for this contract (drop NaN/unknown)
+                y_train = train_outcomes[contract].dropna()
+
+                if len(y_train) == 0:
+                    continue
 
                 # Skip if no variation in training data (configurable)
                 if self.require_variation and y_train.nunique() < 2:
                     continue
 
-                # Fit model
+                # Fit model with cleaned training data
                 model = self.model_class(**self.model_params)
-                model.fit(train_features, y_train)
+                x_train = train_features.loc[y_train.index]
+                model.fit(x_train, y_train)
 
                 # Make prediction
                 current_features = self.features.loc[[current_date]]
@@ -218,8 +222,11 @@ class EarningsKalshiBacktester:
                 lower_bound = float(pred.iloc[0]["lower_bound"])
                 upper_bound = float(pred.iloc[0]["upper_bound"])
 
-                # Get actual outcome
-                actual_outcome = int(self.outcomes.loc[current_date, contract])
+                # Get actual outcome (skip if unknown / NaN)
+                raw_outcome = self.outcomes.loc[current_date, contract]
+                if pd.isna(raw_outcome):
+                    continue
+                actual_outcome = int(raw_outcome)
 
                 # Get market price (if available)
                 market_price = None
