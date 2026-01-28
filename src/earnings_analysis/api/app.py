@@ -159,19 +159,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Earnings routers
-app.include_router(predictions.router, prefix="/api/v1")
-app.include_router(edges.router, prefix="/api/v1")
-app.include_router(backtests.router, prefix="/api/v1")
-app.include_router(contracts.router, prefix="/api/v1")
+# Include Earnings routers under /mentions/earnings
+app.include_router(predictions.router, prefix="/api/v1/mentions/earnings")
+app.include_router(edges.router, prefix="/api/v1/mentions/earnings")
+app.include_router(backtests.router, prefix="/api/v1/mentions/earnings")
+app.include_router(contracts.router, prefix="/api/v1/mentions/earnings")
 
-# Include FOMC routers
-app.include_router(fomc_predictions_router, prefix="/api/v1")
-app.include_router(fomc_word_frequencies_router, prefix="/api/v1")
-app.include_router(fomc_transcripts_router, prefix="/api/v1")
-app.include_router(fomc_backtests_router, prefix="/api/v1")
-app.include_router(fomc_contracts_router, prefix="/api/v1")
-app.include_router(fomc_edges_router, prefix="/api/v1")
+# Include FOMC routers under /mentions/fomc
+app.include_router(fomc_predictions_router, prefix="/api/v1/mentions/fomc")
+app.include_router(fomc_word_frequencies_router, prefix="/api/v1/mentions/fomc")
+app.include_router(fomc_transcripts_router, prefix="/api/v1/mentions/fomc")
+app.include_router(fomc_backtests_router, prefix="/api/v1/mentions/fomc")
+app.include_router(fomc_contracts_router, prefix="/api/v1/mentions/fomc")
+app.include_router(fomc_edges_router, prefix="/api/v1/mentions/fomc")
 
 
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
@@ -205,19 +205,19 @@ async def root():
         "openapi": "/openapi.json",
         "health": "/api/v1/health",
         "endpoints": {
-            "earnings": {
-                "predictions": "/api/v1/predictions/{ticker}",
-                "edges": "/api/v1/edges/{ticker}",
-                "backtests": "/api/v1/backtests/{ticker}",
-                "contracts": "/api/v1/contracts/{ticker}",
+            "mentions/earnings": {
+                "predictions": "/api/v1/mentions/earnings/predictions/{ticker}",
+                "edges": "/api/v1/mentions/earnings/edges/{ticker}",
+                "backtests": "/api/v1/mentions/earnings/backtests/{ticker}",
+                "contracts": "/api/v1/mentions/earnings/contracts/{ticker}",
             },
-            "fomc": {
-                "predictions": "/api/v1/fomc/predictions",
-                "word_frequencies": "/api/v1/fomc/word-frequencies",
-                "transcripts": "/api/v1/fomc/transcripts",
-                "backtests": "/api/v1/fomc/backtests",
-                "contracts": "/api/v1/fomc/contracts",
-                "edges": "/api/v1/fomc/edges",
+            "mentions/fomc": {
+                "predictions": "/api/v1/mentions/fomc/predictions",
+                "word_frequencies": "/api/v1/mentions/fomc/word-frequencies",
+                "transcripts": "/api/v1/mentions/fomc/transcripts",
+                "backtests": "/api/v1/mentions/fomc/backtests",
+                "contracts": "/api/v1/mentions/fomc/contracts",
+                "edges": "/api/v1/mentions/fomc/edges",
             },
         },
     }

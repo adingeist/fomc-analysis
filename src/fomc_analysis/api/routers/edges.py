@@ -12,7 +12,7 @@ from fomc_analysis.api.schemas import (
     FOMCEdgesResponse,
 )
 
-router = APIRouter(prefix="/fomc/edges", tags=["fomc-edges"])
+router = APIRouter(prefix="/edges", tags=["fomc-edges"])
 
 
 def get_model_service(request: Request):

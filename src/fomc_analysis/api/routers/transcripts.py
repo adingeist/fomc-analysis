@@ -13,7 +13,7 @@ from fomc_analysis.api.schemas import (
     TranscriptsListResponse,
 )
 
-router = APIRouter(prefix="/fomc/transcripts", tags=["fomc-transcripts"])
+router = APIRouter(prefix="/transcripts", tags=["fomc-transcripts"])
 
 
 def get_data_service(request: Request):

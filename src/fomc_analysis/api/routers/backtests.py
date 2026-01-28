@@ -10,7 +10,7 @@ from fomc_analysis.api.schemas import (
     FOMCHorizonMetrics,
 )
 
-router = APIRouter(prefix="/fomc/backtests", tags=["fomc-backtests"])
+router = APIRouter(prefix="/backtests", tags=["fomc-backtests"])
 
 
 def get_data_service(request: Request):

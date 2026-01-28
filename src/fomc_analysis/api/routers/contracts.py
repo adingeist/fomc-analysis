@@ -11,7 +11,7 @@ from fomc_analysis.api.schemas import (
     FOMCContractsResponse,
 )
 
-router = APIRouter(prefix="/fomc/contracts", tags=["fomc-contracts"])
+router = APIRouter(prefix="/contracts", tags=["fomc-contracts"])
 
 
 def get_model_service(request: Request):

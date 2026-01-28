@@ -12,7 +12,7 @@ from fomc_analysis.api.schemas import (
     FOMCWordPrediction,
 )
 
-router = APIRouter(prefix="/fomc/predictions", tags=["fomc-predictions"])
+router = APIRouter(prefix="/predictions", tags=["fomc-predictions"])
 
 
 def get_model_service(request: Request):

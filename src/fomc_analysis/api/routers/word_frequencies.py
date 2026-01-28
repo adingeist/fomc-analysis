@@ -12,7 +12,7 @@ from fomc_analysis.api.schemas import (
     WordFrequencySeries,
 )
 
-router = APIRouter(prefix="/fomc/word-frequencies", tags=["fomc-word-frequencies"])
+router = APIRouter(prefix="/word-frequencies", tags=["fomc-word-frequencies"])
 
 
 def get_data_service(request: Request):
