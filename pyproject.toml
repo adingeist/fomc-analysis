@@ -52,6 +52,8 @@ dependencies = [
   "streamlit",
   "yfinance",
   "duckdb>=1.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +71,7 @@ dev = [
 [project.scripts]
 fomc = "fomc_analysis.cli:cli"
 earnings = "earnings_analysis.cli.earnings_cli:cli"
+earnings-api = "earnings_analysis.api.app:main"
 
 [build-system]
 # uv respects the PEP 517 build interface.  The 'requires' section
